@@ -2,8 +2,8 @@ import customtkinter as ctk
 from tkinter import ttk, messagebox
 from database.conexao import banco
 from utils import tema
-from utils import busca
 from utils import responsivo
+from repositorios import produtos as repositorio_produtos
 
 
 class Produtos(ctk.CTkFrame):
@@ -169,53 +169,29 @@ class Produtos(ctk.CTkFrame):
     def salvar(self):
 
         nome = self.nome.get().strip()
-        preco_texto = self.preco.get().strip().replace(",", ".")
+        categoria = self.categoria.get().strip()
+        preco_texto = self.preco.get().strip()
         estoque_texto = self.estoque.get().strip()
 
-        if not nome:
-            messagebox.showwarning("Produtos", "Informe o nome do produto.")
-            return
-
         try:
-            preco = float(preco_texto)
-        except ValueError:
-            messagebox.showwarning("Produtos", "Preço inválido. Use números, ex: 16,90")
+
+            if self.produto_id_editando is not None:
+
+                repositorio_produtos.atualizar(
+                    self.produto_id_editando, nome, categoria, preco_texto, estoque_texto
+                )
+
+                self.produto_id_editando = None
+                self.btn_salvar.configure(text="Salvar Produto")
+                self.btn_cancelar.pack_forget()
+
+            else:
+
+                repositorio_produtos.criar(nome, categoria, preco_texto, estoque_texto)
+
+        except repositorio_produtos.ProdutoInvalido as erro:
+            messagebox.showwarning("Produtos", str(erro))
             return
-
-        try:
-            estoque = int(estoque_texto) if estoque_texto else 0
-        except ValueError:
-            messagebox.showwarning("Produtos", "Estoque inválido. Use apenas números inteiros.")
-            return
-
-        categoria = self.categoria.get().strip()
-
-        if self.produto_id_editando is not None:
-
-            banco.executar(
-                """
-                UPDATE produtos
-                SET nome=?, categoria=?, preco=?, estoque=?
-                WHERE id=?
-                """,
-                (nome, categoria, preco, estoque, self.produto_id_editando)
-            )
-
-            self.produto_id_editando = None
-            self.btn_salvar.configure(text="Salvar Produto")
-            self.btn_cancelar.pack_forget()
-
-        else:
-
-            banco.cursor.execute(
-                """
-                INSERT INTO produtos(nome,categoria,preco,estoque)
-                VALUES(?,?,?,?)
-                """,
-                (nome, categoria, preco, estoque)
-            )
-
-            banco.conexao.commit()
 
         self.limpar_formulario()
         self.carregar()
@@ -238,10 +214,7 @@ class Produtos(ctk.CTkFrame):
         valores = self.tabela.item(selecionado[0], "values")
         produto_id = valores[0]
 
-        registro = banco.buscar_um(
-            "SELECT nome, categoria, preco, estoque FROM produtos WHERE id=?",
-            (produto_id,)
-        )
+        registro = repositorio_produtos.obter(produto_id)
 
         if not registro:
             return
@@ -321,36 +294,7 @@ class Produtos(ctk.CTkFrame):
         termo = self.busca.get().strip()
         campo = self.campo_filtro.get()
 
-        # Busca TUDO e filtra em Python (não no SQL), porque o SQLite
-        # só ignora maiúscula/minúscula em letras simples (a-z) e NÃO
-        # em letras acentuadas (á, é, ç, ã...) — comum no cardápio.
-        # Filtrando em Python com .lower(), o acento é tratado certo.
-
-        banco.cursor.execute(
-            "SELECT id, nome, categoria, preco, estoque, ativo FROM produtos ORDER BY id DESC"
-        )
-        produtos = banco.cursor.fetchall()
-
-        if termo:
-
-            if campo == "ID":
-
-                try:
-                    id_busca = int(termo)
-                except ValueError:
-                    # Ainda digitando um número inválido: não mostra nada
-                    # em vez de dar erro.
-                    return
-
-                produtos = [p for p in produtos if p[0] == id_busca]
-
-            elif campo == "Preço":
-
-                produtos = [p for p in produtos if termo in str(p[3])]
-
-            else:  # Nome
-
-                produtos = [p for p in produtos if busca.contem(termo, p[1])]
+        produtos = repositorio_produtos.listar(termo, campo)
 
         for produto_id, nome, categoria, preco, estoque, ativo in produtos:
             self.tabela.insert(
@@ -386,34 +330,16 @@ class Produtos(ctk.CTkFrame):
         if not confirmar:
             return
 
-        ja_vendido = banco.buscar_um(
-            "SELECT COUNT(*) FROM itens_pedido WHERE produto_id=?",
-            (produto_id,)
-        )
+        resultado = repositorio_produtos.excluir(produto_id)
 
-        if ja_vendido and ja_vendido[0] > 0:
-
-            # Já apareceu em pedidos: não apaga (perderia o histórico),
-            # só desativa para não aparecer mais em novos pedidos.
-            banco.cursor.execute(
-                "UPDATE produtos SET ativo=0 WHERE id=?", (produto_id,)
-            )
-            banco.conexao.commit()
-
+        if resultado == "desativado":
             messagebox.showinfo(
                 "Produtos",
                 f"\"{nome}\" já foi vendido antes, então ele foi apenas "
                 "DESATIVADO (some das telas de novo pedido), para manter "
                 "o histórico de vendas intacto."
             )
-
         else:
-
-            banco.cursor.execute(
-                "DELETE FROM produtos WHERE id=?", (produto_id,)
-            )
-            banco.conexao.commit()
-
             messagebox.showinfo(
                 "Produtos",
                 f"\"{nome}\" foi excluído definitivamente."
@@ -433,15 +359,8 @@ class Produtos(ctk.CTkFrame):
         valores = self.tabela.item(selecionado[0], "values")
         produto_id = valores[0]
         nome = valores[1]
-        ativo_atual = valores[5] == "Sim"
 
-        novo_status = 0 if ativo_atual else 1
-
-        banco.cursor.execute(
-            "UPDATE produtos SET ativo=? WHERE id=?",
-            (novo_status, produto_id)
-        )
-        banco.conexao.commit()
+        novo_status = repositorio_produtos.alternar_ativo(produto_id)
 
         acao = "desativado" if novo_status == 0 else "ativado"
         messagebox.showinfo("Produtos", f"\"{nome}\" foi {acao}.")

@@ -140,11 +140,12 @@ def tornar_dinamica(tela, scroll, obter_tabela, **kwargs_linhas):
     janela = tela.winfo_toplevel()
     id_pendente = [None]
     id_bind = [None]
+    desativada = [False]
 
     def recalcular():
         id_pendente[0] = None
 
-        if not tela.winfo_exists():
+        if desativada[0] or not tela.winfo_exists():
             return
 
         tabela = obter_tabela()
@@ -154,7 +155,7 @@ def tornar_dinamica(tela, scroll, obter_tabela, **kwargs_linhas):
             tabela.configure(height=novas_linhas)
 
     def ao_redimensionar(_evento):
-        if not tela.winfo_exists():
+        if desativada[0] or not tela.winfo_exists():
             if id_bind[0] is not None:
                 janela.unbind("<Configure>", id_bind[0])
             return
@@ -164,4 +165,23 @@ def tornar_dinamica(tela, scroll, obter_tabela, **kwargs_linhas):
 
         id_pendente[0] = janela.after(ATRASO_DEBOUNCE_MS, recalcular)
 
+    def desativar():
+        """Desliga o binding e cancela qualquer recálculo pendente.
+        Chamado por `fechar_janela` antes do destroy, pra evitar que
+        o <Configure> emitido pelo próprio destroy agende um after()
+        que dispara contra widgets já destruídos."""
+        desativada[0] = True
+        if id_pendente[0] is not None:
+            janela.after_cancel(id_pendente[0])
+            id_pendente[0] = None
+        if id_bind[0] is not None:
+            janela.unbind("<Configure>", id_bind[0])
+            id_bind[0] = None
+
     id_bind[0] = janela.bind("<Configure>", ao_redimensionar, add="+")
+
+    # Expõe o desativador no frame da tela pra que fechar_janela()
+    # possa chamar antes do destroy.
+    if not hasattr(tela, "_responsivo_desativar"):
+        tela._responsivo_desativar = []
+    tela._responsivo_desativar.append(desativar)

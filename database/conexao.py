@@ -20,10 +20,13 @@ CAMINHO_BANCO = os.path.join(_caminho_base(), "losmanager.db")
 
 class Banco:
 
-    def __init__(self):
+    def __init__(self, caminho=None):
+        """`caminho` normalmente fica implícito (usa o banco real, ao
+        lado do .exe/projeto) — só é passado explicitamente em teste,
+        pra abrir um banco `:memory:` isolado em vez do de produção."""
 
         self.conexao = sqlite3.connect(
-            CAMINHO_BANCO,
+            caminho or CAMINHO_BANCO,
             check_same_thread=False
         )
 
