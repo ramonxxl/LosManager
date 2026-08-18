@@ -106,6 +106,33 @@ class Relatorios(ctk.CTkFrame):
         # os valores certos vêm de aplicar_filtro() ao final do __init__.
         self.atualizar_cards([])
 
+        # ---------------- Taxa por motoboy no período ----------------
+        # Mesmo filtro (período/data/busca) da tabela principal — dá pra
+        # ver quanto cada motoboy tem a receber de taxa de entrega.
+
+        bloco_motoboys = ctk.CTkFrame(self.scroll)
+        bloco_motoboys.pack(fill="x", pady=(0, 15))
+
+        ctk.CTkLabel(
+            bloco_motoboys,
+            text="Taxa de Entrega por Motoboy no período",
+            font=("Arial", 14, "bold")
+        ).pack(anchor="w", padx=15, pady=(10, 6))
+
+        self.tabela_motoboys = ttk.Treeview(
+            bloco_motoboys,
+            columns=("motoboy", "entregas", "total"),
+            show="headings",
+            height=4
+        )
+        self.tabela_motoboys.heading("motoboy", text="Motoboy")
+        self.tabela_motoboys.heading("entregas", text="Entregas")
+        self.tabela_motoboys.heading("total", text="Taxa total")
+        self.tabela_motoboys.column("motoboy", width=260, anchor="w")
+        self.tabela_motoboys.column("entregas", width=100, anchor="center")
+        self.tabela_motoboys.column("total", width=120, anchor="e")
+        self.tabela_motoboys.pack(fill="x", padx=15, pady=(0, 15))
+
         # ---------------- Ações sobre o pedido selecionado ----------------
         # Criado (e empacotado) antes da tabela só para medir a altura
         # real que ele ocupa; a tabela é inserida visualmente ANTES
@@ -600,9 +627,10 @@ class Relatorios(ctk.CTkFrame):
             """
             SELECT p.id, p.numero, p.data, p.hora,
                    COALESCE(c.nome, 'Cliente Balcão'), p.total, p.pagamento, p.status,
-                   p.subtotal, p.desconto, p.acrescimo
+                   p.subtotal, p.desconto, p.acrescimo, m.nome
             FROM pedidos p
             LEFT JOIN clientes c ON c.id = p.cliente_id
+            LEFT JOIN motoboys m ON m.id = p.motoboy_id
             ORDER BY p.id DESC
             """
         )
@@ -668,7 +696,7 @@ class Relatorios(ctk.CTkFrame):
 
         filtrados = []
 
-        for pedido_id, numero, data, hora, cliente, total, pagamento, status, subtotal, desconto, acrescimo in self.todos_pedidos:
+        for pedido_id, numero, data, hora, cliente, total, pagamento, status, subtotal, desconto, acrescimo, motoboy in self.todos_pedidos:
 
             try:
                 data_dt = datetime.strptime(data, "%d/%m/%Y")
@@ -701,13 +729,13 @@ class Relatorios(ctk.CTkFrame):
 
             filtrados.append((
                 pedido_id, numero, data, hora, cliente, total, pagamento, status,
-                subtotal, desconto, acrescimo
+                subtotal, desconto, acrescimo, motoboy
             ))
 
         for linha in self.tabela.get_children():
             self.tabela.delete(linha)
 
-        for pedido_id, numero, data, hora, cliente, total, pagamento, status, subtotal, desconto, acrescimo in filtrados:
+        for pedido_id, numero, data, hora, cliente, total, pagamento, status, subtotal, desconto, acrescimo, motoboy in filtrados:
 
             cancelado = status == "Cancelado"
 
@@ -725,6 +753,7 @@ class Relatorios(ctk.CTkFrame):
         validos = [p for p in filtrados if p[7] != "Cancelado"]
 
         self.atualizar_cards(validos)
+        self.atualizar_motoboys(validos)
 
     # ======================================================
 
@@ -748,6 +777,41 @@ class Relatorios(ctk.CTkFrame):
         self.card(self.cards_frame, "Vendas no período", f"R$ {total_vendas:.2f}", 1)
         self.card(self.cards_frame, "Taxa Motoboy no período", f"R$ {total_motoboy:.2f}", 2)
         self.card(self.cards_frame, "Ticket Médio", f"R$ {ticket_medio:.2f}", 3)
+
+    # ======================================================
+
+    def atualizar_motoboys(self, filtrados):
+        """Agrupa a taxa de entrega (acréscimo) por motoboy, dentro do
+        mesmo filtro de período/data/busca já aplicado à tabela
+        principal. Pedido com taxa mas sem motoboy escolhido entra
+        como "Sem motoboy", pra não esconder taxa não atribuída;
+        pedido sem taxa e sem motoboy (balcão, sem entrega) não entra
+        na tabela — não tem nada pra separar ali."""
+
+        for linha in self.tabela_motoboys.get_children():
+            self.tabela_motoboys.delete(linha)
+
+        totais = {}
+        contagem = {}
+
+        for pedido in filtrados:
+
+            acrescimo = pedido[10] or 0.0
+            motoboy = pedido[11]
+
+            if not motoboy and acrescimo <= 0:
+                continue
+
+            nome = motoboy or "Sem motoboy"
+
+            totais[nome] = totais.get(nome, 0.0) + acrescimo
+            contagem[nome] = contagem.get(nome, 0) + 1
+
+        for nome in sorted(totais):
+            self.tabela_motoboys.insert(
+                "", "end",
+                values=(nome, contagem[nome], f"R$ {totais[nome]:.2f}")
+            )
 
     # ======================================================
 

@@ -183,10 +183,15 @@ def montar_cupom(dados_loja, pedido, itens, largura=32):
 
     pedido = {
         "numero": 12, "cliente": "João da Silva",
+        "endereco_cliente": "Rua Exemplo, 123 - Centro - Cidade",
         "data": "30/07/2026", "hora": "19:45",
         "subtotal": 45.00, "desconto": 0.00, "acrescimo": 0.00,
         "total": 45.00, "pagamento": "PIX", "observacao": ""
     }
+
+    "endereco_cliente" é opcional (Cliente Balcão ou cliente sem
+    endereço cadastrado não manda essa chave) e sai logo abaixo do
+    nome do cliente, pro motoboy não precisar abrir o cadastro.
 
     itens = [
         {"nome": "Pastel de Carne", "qtd": 2,
@@ -223,6 +228,11 @@ def montar_cupom(dados_loja, pedido, itens, largura=32):
     buffer += NEGRITO_OFF
     buffer += _texto(f"{pedido['data']}  {pedido['hora']}\n")
     buffer += _texto(f"Cliente: {pedido['cliente']}\n")
+
+    if pedido.get("endereco_cliente"):
+        for linha in _quebrar_texto(f"Endereço: {pedido['endereco_cliente']}", largura):
+            buffer += _texto(linha + "\n")
+
     buffer += _texto("-" * largura + "\n")
 
     # ---------------- Itens ----------------

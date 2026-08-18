@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import ttk, messagebox
 from datetime import datetime
 
 import sys
@@ -10,6 +10,7 @@ from utils import impressora
 from utils import tema
 from utils import atualizacao
 from utils import autoatualizador
+from repositorios import motoboys as repositorio_motoboys
 
 
 class Configuracoes(ctk.CTkFrame):
@@ -143,6 +144,82 @@ class Configuracoes(ctk.CTkFrame):
             text_color="gray",
             justify="left"
         ).grid(row=2, column=0, columnspan=2, sticky="w", padx=15, pady=(0, 8))
+
+        # =========================================================
+        # MOTOBOYS (cadastro usado no combobox de Pedidos e na
+        # tabela de taxa por motoboy dos Relatórios)
+        # =========================================================
+
+        bloco_motoboys = ctk.CTkFrame(self.scroll)
+        bloco_motoboys.pack(fill="x", padx=10, pady=6)
+
+        ctk.CTkLabel(
+            bloco_motoboys,
+            text="Motoboys",
+            font=("Arial", 14, "bold")
+        ).pack(anchor="w", padx=15, pady=(10, 6))
+
+        ctk.CTkLabel(
+            bloco_motoboys,
+            text="Cadastrados aqui, aparecem no combobox de \"Novo Pedido\" e "
+                 "permitem ver a taxa de entrega separada por motoboy em "
+                 "Relatórios.",
+            font=("Arial", 11),
+            text_color="gray",
+            justify="left"
+        ).pack(anchor="w", padx=15, pady=(0, 8))
+
+        linha_motoboy = ctk.CTkFrame(bloco_motoboys, fg_color="transparent")
+        linha_motoboy.pack(fill="x", padx=15, pady=(0, 8))
+
+        self.novo_motoboy = ctk.CTkEntry(
+            linha_motoboy, width=250, height=26, placeholder_text="Nome do motoboy"
+        )
+        self.novo_motoboy.pack(side="left", padx=(0, 10))
+        self.novo_motoboy.bind("<Return>", lambda evento: self.adicionar_motoboy())
+
+        ctk.CTkButton(
+            linha_motoboy,
+            text="➕ Adicionar",
+            width=120,
+            height=26,
+            fg_color=tema.COR_LARANJA,
+            hover_color=tema.COR_LARANJA_ESCURO,
+            command=self.adicionar_motoboy
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            linha_motoboy,
+            text="🗑 Remover selecionado",
+            width=170,
+            height=26,
+            fg_color=tema.COR_VERMELHO,
+            hover_color="#B93601",
+            command=self.remover_motoboy
+        ).pack(side="left")
+
+        self.tabela_motoboys = ttk.Treeview(
+            bloco_motoboys,
+            columns=("id", "nome", "ativo"),
+            show="headings",
+            height=4
+        )
+        self.tabela_motoboys.heading("nome", text="Nome")
+        self.tabela_motoboys.heading("ativo", text="Ativo")
+        self.tabela_motoboys["displaycolumns"] = ("nome", "ativo")
+        self.tabela_motoboys.column("nome", width=250)
+        self.tabela_motoboys.column("ativo", width=80, anchor="center")
+        self.tabela_motoboys.pack(fill="x", padx=15, pady=(0, 6))
+        self.tabela_motoboys.bind("<Double-1>", self.alternar_ativo_motoboy)
+
+        ctk.CTkLabel(
+            bloco_motoboys,
+            text="Dois cliques numa linha ativa/desativa o motoboy sem excluir "
+                 "(some do combobox de Pedidos, mas fica no histórico).",
+            font=("Arial", 11),
+            text_color="gray",
+            justify="left"
+        ).pack(anchor="w", padx=15, pady=(0, 10))
 
         # =========================================================
         # SEGURANÇA
@@ -309,6 +386,87 @@ class Configuracoes(ctk.CTkFrame):
         if impressora_salva:
             self.combo_impressoras.configure(values=[impressora_salva])
             self.combo_impressoras.set(impressora_salva)
+
+        self.carregar_motoboys()
+
+    # ======================================================
+    # MOTOBOYS
+    # ======================================================
+
+    def carregar_motoboys(self):
+
+        for linha in self.tabela_motoboys.get_children():
+            self.tabela_motoboys.delete(linha)
+
+        for motoboy_id, nome, ativo in repositorio_motoboys.listar():
+            self.tabela_motoboys.insert(
+                "", "end",
+                values=(motoboy_id, nome, "Sim" if ativo else "Não")
+            )
+
+    def adicionar_motoboy(self):
+
+        try:
+            repositorio_motoboys.criar(self.novo_motoboy.get())
+        except repositorio_motoboys.MotoboyInvalido as erro:
+            messagebox.showwarning("Motoboys", str(erro))
+            return
+
+        self.novo_motoboy.delete(0, "end")
+        self.carregar_motoboys()
+
+    def alternar_ativo_motoboy(self, evento=None):
+
+        selecionado = self.tabela_motoboys.selection()
+
+        if not selecionado:
+            return
+
+        valores = self.tabela_motoboys.item(selecionado[0], "values")
+        motoboy_id, nome = valores[0], valores[1]
+
+        novo_status = repositorio_motoboys.alternar_ativo(motoboy_id)
+
+        acao = "desativado" if novo_status == 0 else "ativado"
+        messagebox.showinfo("Motoboys", f"\"{nome}\" foi {acao}.")
+
+        self.carregar_motoboys()
+
+    def remover_motoboy(self):
+
+        selecionado = self.tabela_motoboys.selection()
+
+        if not selecionado:
+            messagebox.showwarning(
+                "Motoboys",
+                "Selecione um motoboy na lista para remover."
+            )
+            return
+
+        valores = self.tabela_motoboys.item(selecionado[0], "values")
+        motoboy_id, nome = valores[0], valores[1]
+
+        confirmar = messagebox.askyesno(
+            "Remover Motoboy",
+            f"Tem certeza que deseja remover \"{nome}\"?"
+        )
+
+        if not confirmar:
+            return
+
+        resultado = repositorio_motoboys.excluir(motoboy_id)
+
+        if resultado == "desativado":
+            messagebox.showinfo(
+                "Motoboys",
+                f"\"{nome}\" já aparece em pedidos anteriores, então foi apenas "
+                "DESATIVADO (some do combobox de Pedidos), para manter o "
+                "histórico intacto."
+            )
+        else:
+            messagebox.showinfo("Motoboys", f"\"{nome}\" foi removido.")
+
+        self.carregar_motoboys()
 
     # ======================================================
 

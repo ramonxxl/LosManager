@@ -203,6 +203,27 @@ class Banco:
         self._garantir_coluna("itens_pedido", "observacao", "TEXT")
 
         # =====================================================
+        # MOTOBOYS (cadastro simples, pra separar a taxa de entrega
+        # por quem entregou nos relatórios)
+        # =====================================================
+
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS motoboys(
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            nome TEXT NOT NULL,
+
+            ativo INTEGER DEFAULT 1
+
+        )
+        """)
+
+        # Bancos criados antes do cadastro de motoboys não têm essa
+        # coluna em pedidos.
+        self._garantir_coluna("pedidos", "motoboy_id", "INTEGER")
+
+        # =====================================================
         # CAIXA
         # =====================================================
 

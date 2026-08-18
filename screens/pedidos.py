@@ -8,6 +8,9 @@ from utils import config
 from utils import busca
 from utils import responsivo
 from utils import caixa_estado
+from repositorios import motoboys as repositorio_motoboys
+
+SEM_MOTOBOY = "— Nenhum —"
 
 
 class Pedidos(ctk.CTkFrame):
@@ -283,12 +286,38 @@ class Pedidos(ctk.CTkFrame):
 
         ctk.CTkButton(
             rodape,
-            text="Finalizar e Imprimir",
+            text="Finalizar Pedido",
             width=200,
             fg_color="#2a7",
             hover_color="#186",
             command=self.finalizar
         ).grid(row=0, column=5, padx=20)
+
+        # Linha própria pro motoboy + opção de impressão: junto com a
+        # linha 0 passaria de ~1040px de largura útil em telas 1366x768
+        # (ver nota de largura no CLAUDE.md).
+
+        ctk.CTkLabel(
+            rodape,
+            text="Motoboy"
+        ).grid(row=1, column=0, padx=10, pady=(0, 10))
+
+        self.motoboy_combo = ctk.CTkComboBox(
+            rodape,
+            values=[SEM_MOTOBOY],
+            width=180
+        )
+        self.motoboy_combo.set(SEM_MOTOBOY)
+        self.motoboy_combo.grid(row=1, column=1, pady=(0, 10))
+
+        self.imprimir_cupom = ctk.CTkCheckBox(
+            rodape,
+            text="Imprimir cupom"
+        )
+        self.imprimir_cupom.select()
+        self.imprimir_cupom.grid(row=1, column=2, columnspan=2, padx=(20, 5), pady=(0, 10), sticky="w")
+
+        self.carregar_motoboys()
 
         # ---------------- Tabela do carrinho ----------------
         # Vem por último na construção (pra já poder medir a altura do
@@ -319,6 +348,30 @@ class Pedidos(ctk.CTkFrame):
         self.tabela.pack(fill="both", expand=True, pady=15, before=rodape)
 
         responsivo.tornar_dinamica(self, self.scroll, lambda: self.tabela, pady_tabela=15)
+
+    # ======================================================
+
+    def carregar_motoboys(self):
+
+        self.motoboys_cache = repositorio_motoboys.listar_ativos()
+
+        nomes = [SEM_MOTOBOY] + [nome for _id, nome in self.motoboys_cache]
+
+        self.motoboy_combo.configure(values=nomes)
+        self.motoboy_combo.set(SEM_MOTOBOY)
+
+    # ======================================================
+
+    def obter_motoboy_id(self):
+
+        nome_escolhido = self.motoboy_combo.get()
+
+        motoboy = next(
+            (m for m in self.motoboys_cache if m[1] == nome_escolhido),
+            None
+        )
+
+        return motoboy[0] if motoboy else None
 
     # ======================================================
 
@@ -752,6 +805,9 @@ class Pedidos(ctk.CTkFrame):
 
         self.valor_entrega.delete(0, "end")
 
+        self.motoboy_combo.set(SEM_MOTOBOY)
+        self.imprimir_cupom.select()
+
         self.selecionar_cliente_balcao()
 
         self.produto_selecionado = None
@@ -796,6 +852,7 @@ class Pedidos(ctk.CTkFrame):
 
         entrega = self.obter_valor_entrega()
         total_final = self.total + entrega
+        motoboy_id = self.obter_motoboy_id()
 
         # Pedido + itens + baixa de estoque viram uma transação só: se
         # algo falhar no meio, desfaz tudo (rollback) em vez de deixar
@@ -806,12 +863,12 @@ class Pedidos(ctk.CTkFrame):
                 """
                 INSERT INTO pedidos
                     (numero, cliente_id, data, hora, subtotal,
-                     desconto, acrescimo, total, pagamento, status, observacao)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     desconto, acrescimo, total, pagamento, status, observacao, motoboy_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     numero, cliente_id, data_str, hora_str, self.total,
-                    0.0, entrega, total_final, pagamento, "Finalizado", ""
+                    0.0, entrega, total_final, pagamento, "Finalizado", "", motoboy_id
                 )
             )
 
@@ -886,6 +943,7 @@ class Pedidos(ctk.CTkFrame):
         return {
             "numero": numero,
             "cliente": nome_cliente,
+            "endereco_cliente": self.obter_endereco_cliente(cliente_id),
             "data": data_str,
             "hora": hora_str,
             "subtotal": self.total,
@@ -895,6 +953,39 @@ class Pedidos(ctk.CTkFrame):
             "pagamento": pagamento,
             "observacao": ""
         }
+
+    # ======================================================
+
+    def obter_endereco_cliente(self, cliente_id):
+        """Monta o endereço principal do cliente numa linha só, pro
+        cupom — motoboy não pode ter que abrir o cadastro pra saber
+        pra onde entregar. Cliente Balcão (sem cliente_id) ou cliente
+        sem nenhum endereço cadastrado devolve string vazia."""
+
+        if cliente_id is None:
+            return ""
+
+        endereco = banco.buscar_um(
+            """
+            SELECT endereco, numero, bairro, cidade
+            FROM enderecos_cliente
+            WHERE cliente_id=? AND principal=1
+            """,
+            (cliente_id,)
+        )
+
+        if not endereco:
+            return ""
+
+        rua, numero, bairro, cidade = endereco
+
+        linha = ", ".join(p for p in (rua, numero) if p)
+        complemento = " - ".join(p for p in (bairro, cidade) if p)
+
+        if complemento:
+            linha = f"{linha} - {complemento}" if linha else complemento
+
+        return linha
 
     # ======================================================
 
@@ -932,6 +1023,16 @@ class Pedidos(ctk.CTkFrame):
                 f"Não foi possível salvar o pedido no banco:\n\n{erro}"
             )
 
+            return
+
+        if not self.imprimir_cupom.get():
+
+            messagebox.showinfo(
+                "Los Manager",
+                f"Pedido Nº {pedido_dados['numero']:04d} salvo sem impressão do cupom."
+            )
+
+            self.limpar_pedido()
             return
 
         # -------- Tenta imprimir; se falhar, avisa mas NÃO perde o pedido --------
