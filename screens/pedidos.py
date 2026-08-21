@@ -8,6 +8,7 @@ from utils import config
 from utils import busca
 from utils import responsivo
 from utils import caixa_estado
+from utils import pedido_rascunho
 from repositorios import motoboys as repositorio_motoboys
 
 SEM_MOTOBOY = "— Nenhum —"
@@ -30,6 +31,88 @@ class Pedidos(ctk.CTkFrame):
 
         self.carregar_clientes()
         self.carregar_produtos()
+
+        self.restaurar_rascunho()
+
+    # ======================================================
+
+    def destroy(self):
+
+        # Guarda o carrinho em memória antes da tela ser destruída, pra
+        # não perder o pedido ao navegar pra outra tela — ver
+        # utils/pedido_rascunho.py.
+        self.salvar_rascunho()
+
+        super().destroy()
+
+    # ======================================================
+
+    def salvar_rascunho(self):
+
+        if not self.itens:
+            pedido_rascunho.limpar()
+            return
+
+        pedido_rascunho.salvar({
+            "itens": self.itens,
+            "total": self.total,
+            "cliente_selecionado": self.cliente_selecionado,
+            "pagamento": self.pagamento.get(),
+            "valor_entrega": self.valor_entrega.get(),
+            "motoboy": self.motoboy_combo.get(),
+            "imprimir_cupom": bool(self.imprimir_cupom.get())
+        })
+
+    # ======================================================
+
+    def restaurar_rascunho(self):
+        """Repõe o pedido que ficou em andamento numa passagem anterior
+        por essa tela (ver utils/pedido_rascunho.py). Sem rascunho
+        guardado, ou rascunho vazio, não faz nada."""
+
+        estado = pedido_rascunho.obter()
+
+        if estado is None or not estado["itens"]:
+            return
+
+        self.itens = estado["itens"]
+        self.total = estado["total"]
+
+        for item in self.itens:
+            self.tabela.insert(
+                "", "end",
+                values=(
+                    item["nome"],
+                    item["observacao"],
+                    item["qtd"],
+                    f"R$ {item['valor_unitario']:.2f}",
+                    f"R$ {item['subtotal']:.2f}"
+                )
+            )
+
+        self.cliente_selecionado = estado["cliente_selecionado"]
+
+        if self.cliente_selecionado:
+            cliente = self.cliente_selecionado
+            self.lbl_cliente_selecionado.configure(
+                text=f"✅ {cliente['nome']}" + (f"  —  {cliente['telefone']}" if cliente["telefone"] else ""),
+                text_color="#2a7"
+            )
+
+        self.pagamento.set(estado["pagamento"])
+
+        if estado["valor_entrega"]:
+            self.valor_entrega.insert(0, estado["valor_entrega"])
+
+        if estado["motoboy"] in self.motoboy_combo.cget("values"):
+            self.motoboy_combo.set(estado["motoboy"])
+
+        if estado["imprimir_cupom"]:
+            self.imprimir_cupom.select()
+        else:
+            self.imprimir_cupom.deselect()
+
+        self.atualizar_total()
 
     # ======================================================
 
@@ -794,6 +877,10 @@ class Pedidos(ctk.CTkFrame):
     # ======================================================
 
     def limpar_pedido(self):
+
+        # Pedido finalizado: não há mais o que restaurar numa próxima
+        # visita à tela.
+        pedido_rascunho.limpar()
 
         self.itens = []
         self.total = 0.0
