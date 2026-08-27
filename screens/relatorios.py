@@ -99,6 +99,17 @@ class Relatorios(ctk.CTkFrame):
         )
         # Só aparece quando há uma data escolhida (ver atualizar_rotulo_data)
 
+        # Filtro rápido pra achar pedidos que ficaram sem motoboy
+        # registrado (esquecimento na hora do pedido, ver "Editar
+        # Motoboy" abaixo) — sem ele, com o histórico cheio, procurar
+        # os poucos pedidos faltando era manual, um por um.
+        self.somente_sem_motoboy = ctk.CTkCheckBox(
+            linha_data,
+            text="🛵 Só pedidos sem motoboy",
+            command=self.aplicar_filtro
+        )
+        self.somente_sem_motoboy.pack(side="left", padx=(20, 0))
+
         # ---------------- Cards de resumo ----------------
 
         self.cards_frame = ctk.CTkFrame(self.scroll, fg_color="transparent")
@@ -248,7 +259,7 @@ class Relatorios(ctk.CTkFrame):
 
         self.tabela = ttk.Treeview(
             self.scroll,
-            columns=("id", "numero", "data", "hora", "cliente", "total", "pagamento", "status"),
+            columns=("id", "numero", "data", "hora", "cliente", "total", "pagamento", "motoboy", "status"),
             show="headings",
             height=linhas
         )
@@ -257,9 +268,10 @@ class Relatorios(ctk.CTkFrame):
             ("numero", "Nº", 70, "center"),
             ("data", "Data", 90, "center"),
             ("hora", "Hora", 70, "center"),
-            ("cliente", "Cliente", 260, "w"),
+            ("cliente", "Cliente", 220, "w"),
             ("total", "Total", 100, "e"),
             ("pagamento", "Pagamento", 110, "center"),
+            ("motoboy", "Motoboy", 140, "w"),
             ("status", "Status", 100, "center"),
         ]
 
@@ -389,7 +401,7 @@ class Relatorios(ctk.CTkFrame):
             return
 
         valores = self.tabela.item(selecionado[0], "values")
-        pedido_id, numero, status_atual = valores[0], valores[1], valores[7]
+        pedido_id, numero, status_atual = valores[0], valores[1], valores[8]
 
         if status_atual == "Cancelado":
             messagebox.showinfo("Relatórios", f"O pedido Nº {numero} já está cancelado.")
@@ -472,7 +484,7 @@ class Relatorios(ctk.CTkFrame):
             return
 
         valores = self.tabela.item(selecionado[0], "values")
-        pedido_id, numero, status_atual = valores[0], valores[1], valores[7]
+        pedido_id, numero, status_atual = valores[0], valores[1], valores[8]
 
         if status_atual != "Cancelado":
             messagebox.showinfo("Relatórios", f"O pedido Nº {numero} não está cancelado.")
@@ -799,6 +811,9 @@ class Relatorios(ctk.CTkFrame):
                 if not busca.contem(termo, cliente) and termo not in str(numero):
                     continue
 
+            if self.somente_sem_motoboy.get() and motoboy:
+                continue
+
             filtrados.append((
                 pedido_id, numero, data, hora, cliente, total, pagamento, status,
                 subtotal, desconto, acrescimo, motoboy
@@ -815,7 +830,8 @@ class Relatorios(ctk.CTkFrame):
                 "", "end",
                 values=(
                     pedido_id, f"{numero:04d}", data, hora, cliente,
-                    f"R$ {total:.2f}", pagamento, status or "Finalizado"
+                    f"R$ {total:.2f}", pagamento, motoboy or SEM_MOTOBOY,
+                    status or "Finalizado"
                 ),
                 tags=("cancelado",) if cancelado else ()
             )
