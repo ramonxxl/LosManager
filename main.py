@@ -12,6 +12,7 @@ from screens.pedidos import Pedidos
 from screens.configuracoes import Configuracoes
 from screens.caixa import Caixa
 from screens.relatorios import Relatorios
+from screens.fidelidade import Fidelidade
 from utils import config
 from utils import tema
 from utils import atualizacao
@@ -173,6 +174,7 @@ class LosManager(ctk.CTk):
             ("pedidos", "🛒 Pedidos", self.abrir_pedidos),
             ("caixa", "💰 Caixa", self.abrir_caixa),
             ("relatorios", "📊 Relatórios", self.abrir_relatorios),
+            ("fidelidade", "🎁 Fidelidade", self.abrir_fidelidade),
             ("configuracoes", "⚙ Configurações", self.abrir_configuracoes)
 
         ]
@@ -348,6 +350,13 @@ class LosManager(ctk.CTk):
 
         self.limpar_area()
         Caixa(self.area)
+
+    # ==================================================
+
+    def abrir_fidelidade(self):
+
+        self.limpar_area()
+        Fidelidade(self.area)
 
     # ==================================================
 

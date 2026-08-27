@@ -9,6 +9,7 @@ from utils import calendario
 from utils import tema
 from utils import responsivo
 from repositorios import motoboys as repositorio_motoboys
+from repositorios import fidelidade as repositorio_fidelidade
 
 SEM_MOTOBOY = "Retirada (sem motoboy)"
 
@@ -25,6 +26,7 @@ class Relatorios(ctk.CTkFrame):
         self.criar_interface()
         self.carregar_pedidos()
         self.aplicar_filtro()
+        self.atualizar_fidelidade()
 
     # ======================================================
 
@@ -146,6 +148,51 @@ class Relatorios(ctk.CTkFrame):
         self.tabela_motoboys.column("entregas", width=100, anchor="center")
         self.tabela_motoboys.column("total", width=120, anchor="e")
         self.tabela_motoboys.pack(fill="x", padx=15, pady=(0, 15))
+
+        # ---------------- Programa de Fidelidade (regra 15) ----------------
+        # Ao contrário dos cards acima, é histórico vitalício do
+        # cliente — não faz sentido filtrar "pedidos de hoje que
+        # contam pra fidelidade", então não usa período/data/busca.
+
+        bloco_fidelidade = ctk.CTkFrame(self.scroll)
+        bloco_fidelidade.pack(fill="x", pady=(0, 15))
+
+        ctk.CTkLabel(
+            bloco_fidelidade,
+            text="🎁 Programa de Fidelidade",
+            font=("Arial", 14, "bold")
+        ).pack(anchor="w", padx=15, pady=(10, 2))
+
+        ctk.CTkLabel(
+            bloco_fidelidade,
+            text="Histórico total (vitalício) — não é filtrado pelo período/data "
+                 "escolhidos acima.",
+            font=("Arial", 11),
+            text_color="gray"
+        ).pack(anchor="w", padx=15, pady=(0, 8))
+
+        self.cards_fidelidade_frame = ctk.CTkFrame(bloco_fidelidade, fg_color="transparent")
+        self.cards_fidelidade_frame.pack(fill="x", padx=15, pady=(0, 10))
+
+        ctk.CTkLabel(
+            bloco_fidelidade,
+            text="Clientes mais fiéis",
+            font=("Arial", 13, "bold")
+        ).pack(anchor="w", padx=15, pady=(0, 6))
+
+        self.tabela_fidelidade = ttk.Treeview(
+            bloco_fidelidade,
+            columns=("cliente", "pedidos", "recompensas"),
+            show="headings",
+            height=5
+        )
+        self.tabela_fidelidade.heading("cliente", text="Cliente")
+        self.tabela_fidelidade.heading("pedidos", text="Pedidos")
+        self.tabela_fidelidade.heading("recompensas", text="Recompensas disponíveis")
+        self.tabela_fidelidade.column("cliente", width=260, anchor="w")
+        self.tabela_fidelidade.column("pedidos", width=100, anchor="center")
+        self.tabela_fidelidade.column("recompensas", width=160, anchor="center")
+        self.tabela_fidelidade.pack(fill="x", padx=15, pady=(0, 15))
 
         # ---------------- Ações sobre o pedido selecionado ----------------
         # Criado (e empacotado) antes da tabela só para medir a altura
@@ -446,6 +493,11 @@ class Relatorios(ctk.CTkFrame):
         try:
             self.devolver_estoque_pedido(pedido_id)
 
+            # Pedido cancelado não conta pra fidelidade (regra do
+            # programa) — estorna o ponto (e a recompensa que ele
+            # tiver gerado, se ainda não resgatada) na mesma transação.
+            repositorio_fidelidade.estornar_pedido_concluido(pedido_id, banco=banco)
+
             banco.executar_sem_commit(
                 "UPDATE pedidos SET status='Cancelado' WHERE id=?", (pedido_id,)
             )
@@ -467,6 +519,7 @@ class Relatorios(ctk.CTkFrame):
 
         self.carregar_pedidos()
         self.aplicar_filtro()
+        self.atualizar_fidelidade()
 
     # ======================================================
     # REVERTER CANCELAMENTO (desfaz um cancelamento feito por engano)
@@ -528,6 +581,10 @@ class Relatorios(ctk.CTkFrame):
         try:
             self.reconsumir_estoque_pedido(pedido_id)
 
+            # Inverso exato do estorno em cancelar_pedido: devolve o
+            # ponto de fidelidade (e a recompensa, se fizer sentido).
+            repositorio_fidelidade.reverter_estorno_pedido(pedido_id, banco=banco)
+
             banco.executar_sem_commit(
                 "UPDATE pedidos SET status='Finalizado' WHERE id=?", (pedido_id,)
             )
@@ -549,6 +606,7 @@ class Relatorios(ctk.CTkFrame):
 
         self.carregar_pedidos()
         self.aplicar_filtro()
+        self.atualizar_fidelidade()
 
     # ======================================================
     # EDITAR MOTOBOY (corrige um nome esquecido na hora do pedido)
@@ -899,6 +957,34 @@ class Relatorios(ctk.CTkFrame):
             self.tabela_motoboys.insert(
                 "", "end",
                 values=(nome, contagem[nome], f"R$ {totais[nome]:.2f}")
+            )
+
+    # ======================================================
+
+    def atualizar_fidelidade(self):
+        """Números do Programa de Fidelidade (regra 15) — vitalícios,
+        não passam pelo filtro de período/data/busca da tabela
+        principal, porque fidelidade é histórico do cliente, não do
+        dia."""
+
+        resumo = repositorio_fidelidade.resumo_relatorio()
+
+        for widget in self.cards_fidelidade_frame.winfo_children():
+            widget.destroy()
+
+        self.card(self.cards_fidelidade_frame, "Clientes participantes", str(resumo["clientes_participantes"]), 0)
+        self.card(self.cards_fidelidade_frame, "Pedidos contabilizados", str(resumo["pedidos_contabilizados"]), 1)
+        self.card(self.cards_fidelidade_frame, "Recompensas geradas", str(resumo["recompensas_geradas"]), 2)
+        self.card(self.cards_fidelidade_frame, "Recompensas resgatadas", str(resumo["recompensas_resgatadas"]), 3)
+        self.card(self.cards_fidelidade_frame, "Disponíveis agora", str(resumo["recompensas_disponiveis"]), 4)
+
+        for linha in self.tabela_fidelidade.get_children():
+            self.tabela_fidelidade.delete(linha)
+
+        for nome, total_pedidos, recompensas_disponiveis in resumo["ranking"]:
+            self.tabela_fidelidade.insert(
+                "", "end",
+                values=(nome, total_pedidos, recompensas_disponiveis)
             )
 
     # ======================================================

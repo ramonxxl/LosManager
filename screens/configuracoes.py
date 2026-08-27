@@ -146,6 +146,36 @@ class Configuracoes(ctk.CTkFrame):
         ).grid(row=2, column=0, columnspan=2, sticky="w", padx=15, pady=(0, 8))
 
         # =========================================================
+        # PROGRAMA DE FIDELIDADE
+        # =========================================================
+
+        bloco_fidelidade = ctk.CTkFrame(self.scroll)
+        bloco_fidelidade.pack(fill="x", padx=10, pady=6)
+
+        ctk.CTkLabel(
+            bloco_fidelidade,
+            text="Programa de Fidelidade",
+            font=("Arial", 14, "bold")
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=15, pady=(10, 6))
+
+        ctk.CTkLabel(bloco_fidelidade, text="Pedidos para ganhar 1 recompensa").grid(
+            row=1, column=0, sticky="w", padx=15, pady=(4, 4)
+        )
+
+        self.fidelidade_meta = ctk.CTkEntry(bloco_fidelidade, width=80, height=26)
+        self.fidelidade_meta.grid(row=1, column=1, padx=15, pady=(4, 4), sticky="w")
+
+        ctk.CTkLabel(
+            bloco_fidelidade,
+            text="A cada esse número de pedidos concluídos, o cliente ganha 1 pastel\n"
+                 "grátis (cumulativo: o dobro dos pedidos dá 2 recompensas, e assim\n"
+                 "por diante). Gerencie clientes e resgates na tela \"🎁 Fidelidade\".",
+            font=("Arial", 11),
+            text_color="gray",
+            justify="left"
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=15, pady=(0, 8))
+
+        # =========================================================
         # MOTOBOYS (cadastro usado no combobox de Pedidos e na
         # tabela de taxa por motoboy dos Relatórios)
         # =========================================================
@@ -375,6 +405,9 @@ class Configuracoes(ctk.CTkFrame):
         else:
             self.bloquear_estoque_ingrediente.deselect()
 
+        self.fidelidade_meta.delete(0, "end")
+        self.fidelidade_meta.insert(0, str(config.obter_meta_fidelidade()))
+
         self.senha_reset.delete(0, "end")
         self.senha_reset.insert(0, config.obter("senha_reset"))
 
@@ -501,6 +534,20 @@ class Configuracoes(ctk.CTkFrame):
     def salvar(self):
 
         largura = 48 if self.papel.get().startswith("80mm") else 32
+
+        try:
+            meta_fidelidade = int(self.fidelidade_meta.get().strip())
+            if meta_fidelidade <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning(
+                "Configurações",
+                "\"Pedidos para ganhar 1 recompensa\" precisa ser um número "
+                "inteiro maior que zero."
+            )
+            return
+
+        config.definir("fidelidade_meta_pedidos", str(meta_fidelidade))
 
         config.definir("loja_nome", self.loja_nome.get().strip())
         config.definir("loja_endereco", self.loja_endereco.get().strip())

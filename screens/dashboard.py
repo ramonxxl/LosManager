@@ -2,6 +2,8 @@ import customtkinter as ctk
 from datetime import datetime
 
 from database.conexao import banco
+from utils import config
+from repositorios import fidelidade as repositorio_fidelidade
 
 
 class Dashboard(ctk.CTkFrame):
@@ -19,6 +21,7 @@ class Dashboard(ctk.CTkFrame):
         self.montar_cabecalho()
         self.montar_cards()
         self.montar_alerta_estoque()
+        self.montar_fidelidade()
 
     # ======================================================
     # CABEÇALHO
@@ -183,6 +186,66 @@ class Dashboard(ctk.CTkFrame):
             wraplength=900,
             justify="left"
         ).pack(padx=18, pady=12, anchor="w")
+
+    # ======================================================
+    # PROGRAMA DE FIDELIDADE
+    # ======================================================
+
+    def montar_fidelidade(self):
+
+        resumo = repositorio_fidelidade.resumo_dashboard()
+
+        bloco = ctk.CTkFrame(
+            self.scroll,
+            corner_radius=14,
+            fg_color=("white", "#242424"),
+            border_width=1,
+            border_color=("#e5e5e5", "#333333")
+        )
+        bloco.pack(fill="x", padx=14, pady=(0, 14))
+
+        ctk.CTkLabel(
+            bloco,
+            text="🎁 Fidelidade",
+            font=("Arial", 16, "bold")
+        ).pack(anchor="w", padx=18, pady=(14, 6))
+
+        linha_numeros = ctk.CTkFrame(bloco, fg_color="transparent")
+        linha_numeros.pack(fill="x", padx=18, pady=(0, 10))
+
+        def numero(titulo, valor, coluna):
+            coluna_frame = ctk.CTkFrame(linha_numeros, fg_color="transparent")
+            coluna_frame.grid(row=0, column=coluna, sticky="w", padx=(0, 40))
+            ctk.CTkLabel(
+                coluna_frame, text=titulo, font=("Arial", 12), text_color="gray"
+            ).pack(anchor="w")
+            ctk.CTkLabel(
+                coluna_frame, text=str(valor), font=("Arial", 20, "bold")
+            ).pack(anchor="w")
+
+        numero("Clientes cadastrados", resumo["clientes_participantes"], 0)
+        numero("Recompensas disponíveis", resumo["recompensas_disponiveis"], 1)
+        numero("Recompensas resgatadas", resumo["recompensas_resgatadas"], 2)
+
+        if resumo["proximos"]:
+
+            ctk.CTkLabel(
+                bloco,
+                text="🔥 Clientes próximos da recompensa",
+                font=("Arial", 13, "bold")
+            ).pack(anchor="w", padx=18, pady=(6, 4))
+
+            meta = config.obter_meta_fidelidade()
+
+            for nome, _total_pedidos, faltam in resumo["proximos"]:
+                ctk.CTkLabel(
+                    bloco,
+                    text=f"{nome}    {meta - faltam}/{meta}",
+                    font=("Arial", 12),
+                    anchor="w"
+                ).pack(fill="x", padx=24, pady=1)
+
+            ctk.CTkLabel(bloco, text="", height=1).pack(pady=4)
 
     # ======================================================
     # BANCO: números reais do sistema

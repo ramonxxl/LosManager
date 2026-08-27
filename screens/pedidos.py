@@ -9,7 +9,9 @@ from utils import busca
 from utils import responsivo
 from utils import caixa_estado
 from utils import pedido_rascunho
+from utils import tema
 from repositorios import motoboys as repositorio_motoboys
+from repositorios import fidelidade as repositorio_fidelidade
 
 SEM_MOTOBOY = "— Selecione —"
 RETIRADA = "Retirada (sem motoboy)"
@@ -28,12 +30,19 @@ class Pedidos(ctk.CTkFrame):
         # A Treeview é só a exibição; os dados reais ficam aqui.
         self.itens = []
 
+        # Quando "Usar Recompensa" já foi aplicado a este pedido (ver
+        # utils/pedido_rascunho.py e repositorios/fidelidade.py):
+        # {"cliente_id": ..., "indice": <índice em self.itens>}
+        self.recompensa_pendente = None
+
         self.criar_interface()
 
         self.carregar_clientes()
         self.carregar_produtos()
 
         self.restaurar_rascunho()
+
+        self.atualizar_banner_fidelidade()
 
     # ======================================================
 
@@ -61,7 +70,8 @@ class Pedidos(ctk.CTkFrame):
             "pagamento": self.pagamento.get(),
             "valor_entrega": self.valor_entrega.get(),
             "motoboy": self.motoboy_combo.get(),
-            "imprimir_cupom": bool(self.imprimir_cupom.get())
+            "imprimir_cupom": bool(self.imprimir_cupom.get()),
+            "recompensa_pendente": self.recompensa_pendente
         })
 
     # ======================================================
@@ -113,7 +123,10 @@ class Pedidos(ctk.CTkFrame):
         else:
             self.imprimir_cupom.deselect()
 
+        self.recompensa_pendente = estado.get("recompensa_pendente")
+
         self.atualizar_total()
+        self.atualizar_banner_fidelidade()
 
     # ======================================================
 
@@ -204,6 +217,35 @@ class Pedidos(ctk.CTkFrame):
             text_color="gray"
         )
         self.lbl_cliente_selecionado.pack(anchor="w", pady=(5, 0))
+
+        # ---------------- Banner de recompensa de fidelidade ----------------
+        # Só aparece quando o cliente selecionado tem recompensa
+        # disponível (ou já aplicou uma neste pedido) — ver
+        # atualizar_banner_fidelidade(). Começa escondido (Cliente
+        # Balcão não participa da fidelidade).
+
+        self.frame_fidelidade = ctk.CTkFrame(coluna_cliente, fg_color="transparent")
+
+        self.lbl_fidelidade = ctk.CTkLabel(
+            self.frame_fidelidade,
+            text="",
+            font=("Arial", 12, "bold"),
+            text_color=tema.COR_LARANJA_ESCURO,
+            wraplength=260,
+            justify="left"
+        )
+        self.lbl_fidelidade.pack(anchor="w")
+
+        self.botao_usar_recompensa = ctk.CTkButton(
+            self.frame_fidelidade,
+            text="🎁 Usar Recompensa",
+            width=160,
+            height=26,
+            fg_color=tema.COR_LARANJA,
+            hover_color=tema.COR_LARANJA_ESCURO,
+            command=self.usar_recompensa
+        )
+        self.botao_usar_recompensa.pack(anchor="w", pady=(4, 0))
 
         # ---------------- Produto (com busca) ----------------
 
@@ -552,6 +594,14 @@ class Pedidos(ctk.CTkFrame):
 
     def selecionar_cliente_da_lista(self, evento=None):
 
+        if self.recompensa_pendente:
+            messagebox.showwarning(
+                "Fidelidade",
+                "Este pedido já está usando uma recompensa. Remova o item "
+                "gratuito do carrinho antes de trocar de cliente."
+            )
+            return
+
         selecionado = self.lista_resultados_cliente.selection()
 
         if not selecionado:
@@ -581,9 +631,19 @@ class Pedidos(ctk.CTkFrame):
         self.busca_cliente.delete(0, "end")
         self.resultados_cliente_frame.pack_forget()
 
+        self.atualizar_banner_fidelidade()
+
     # ======================================================
 
     def selecionar_cliente_balcao(self):
+
+        if self.recompensa_pendente:
+            messagebox.showwarning(
+                "Fidelidade",
+                "Este pedido já está usando uma recompensa. Remova o item "
+                "gratuito do carrinho antes de trocar de cliente."
+            )
+            return
 
         self.cliente_selecionado = None
 
@@ -594,6 +654,94 @@ class Pedidos(ctk.CTkFrame):
             text="🧍 Cliente Balcão",
             text_color="gray"
         )
+
+        self.atualizar_banner_fidelidade()
+
+    # ======================================================
+    # FIDELIDADE (banner + uso da recompensa)
+    # ======================================================
+
+    def atualizar_banner_fidelidade(self):
+
+        if self.recompensa_pendente:
+            self.frame_fidelidade.pack(anchor="w", pady=(5, 0), fill="x")
+            self.lbl_fidelidade.configure(text="🎁 Recompensa aplicada neste pedido")
+            self.botao_usar_recompensa.configure(state="disabled")
+            return
+
+        cliente_id = self.cliente_selecionado["id"] if self.cliente_selecionado else None
+
+        if cliente_id is None:
+            self.frame_fidelidade.pack_forget()
+            return
+
+        status = repositorio_fidelidade.obter_status_cliente(cliente_id)
+        disponiveis = status["recompensas_disponiveis"]
+
+        if disponiveis <= 0:
+            self.frame_fidelidade.pack_forget()
+            return
+
+        texto = (
+            "🎁 ESTE CLIENTE POSSUI 1 RECOMPENSA DISPONÍVEL" if disponiveis == 1
+            else f"🎁 ESTE CLIENTE POSSUI {disponiveis} RECOMPENSAS DISPONÍVEIS"
+        )
+
+        self.frame_fidelidade.pack(anchor="w", pady=(5, 0), fill="x")
+        self.lbl_fidelidade.configure(text=texto)
+        self.botao_usar_recompensa.configure(state="normal")
+
+    # ======================================================
+
+    def usar_recompensa(self):
+
+        if self.cliente_selecionado is None:
+            messagebox.showwarning(
+                "Fidelidade",
+                "Selecione um cliente cadastrado para usar uma recompensa."
+            )
+            return
+
+        if self.recompensa_pendente:
+            messagebox.showinfo("Fidelidade", "Este pedido já está usando 1 recompensa.")
+            return
+
+        if not self.itens:
+            messagebox.showwarning(
+                "Fidelidade",
+                "Adicione ao menos um produto ao carrinho antes de usar a "
+                "recompensa — ela zera o valor de um dos itens."
+            )
+            return
+
+        JanelaUsarRecompensa(self, self.itens, self.aplicar_recompensa)
+
+    # ======================================================
+
+    def aplicar_recompensa(self, indice):
+
+        item = self.itens[indice]
+
+        self.total -= item["subtotal"]
+        item["valor_unitario"] = 0.0
+        item["subtotal"] = 0.0
+        item["observacao"] = (
+            (item["observacao"] + " " if item["observacao"] else "") + "(Recompensa fidelidade)"
+        )
+
+        linha_id = self.tabela.get_children()[indice]
+        self.tabela.item(
+            linha_id,
+            values=(item["nome"], item["observacao"], item["qtd"], "R$ 0.00", "R$ 0.00")
+        )
+
+        self.recompensa_pendente = {
+            "cliente_id": self.cliente_selecionado["id"],
+            "indice": indice
+        }
+
+        self.atualizar_total()
+        self.atualizar_banner_fidelidade()
 
     # ======================================================
 
@@ -873,7 +1021,19 @@ class Pedidos(ctk.CTkFrame):
 
         self.tabela.delete(selecionado[0])
 
+        if self.recompensa_pendente:
+            if self.recompensa_pendente["indice"] == indice:
+                self.recompensa_pendente = None
+                messagebox.showinfo(
+                    "Fidelidade",
+                    "O item com a recompensa foi removido — a recompensa não "
+                    "será usada neste pedido."
+                )
+            elif self.recompensa_pendente["indice"] > indice:
+                self.recompensa_pendente["indice"] -= 1
+
         self.atualizar_total()
+        self.atualizar_banner_fidelidade()
 
     # ======================================================
 
@@ -885,6 +1045,7 @@ class Pedidos(ctk.CTkFrame):
 
         self.itens = []
         self.total = 0.0
+        self.recompensa_pendente = None
 
         for linha in self.tabela.get_children():
             self.tabela.delete(linha)
@@ -942,9 +1103,14 @@ class Pedidos(ctk.CTkFrame):
         total_final = self.total + entrega
         motoboy_id = self.obter_motoboy_id()
 
-        # Pedido + itens + baixa de estoque viram uma transação só: se
-        # algo falhar no meio, desfaz tudo (rollback) em vez de deixar
-        # um pedido gravado pela metade.
+        # Pedido + itens + baixa de estoque + fidelidade viram uma
+        # transação só: se algo falhar no meio, desfaz tudo (rollback)
+        # em vez de deixar um pedido gravado pela metade.
+
+        resultado_fidelidade = {
+            "nova_recompensa": False, "recompensas_geradas": 0,
+            "total_pedidos": 0, "recompensas_disponiveis": 0
+        }
 
         try:
             banco.executar_sem_commit(
@@ -1018,6 +1184,23 @@ class Pedidos(ctk.CTkFrame):
                         (ingrediente_id, quantidade_total, pedido_id, data_str, hora_str)
                     )
 
+            # Se o carrinho tinha uma recompensa aplicada (ver
+            # usar_recompensa/aplicar_recompensa), o resgate só é
+            # gravado agora que o pedido de fato foi salvo, já
+            # amarrado a este pedido_id.
+            if self.recompensa_pendente:
+                repositorio_fidelidade.resgatar_recompensa(
+                    cliente_id, usuario="Caixa", pedido_id=pedido_id, banco=banco
+                )
+
+            # O pedido em si sempre conta seu próprio ponto de
+            # fidelidade (Cliente Balcão não participa — vira no-op
+            # dentro da função). Usar uma recompensa não impede o
+            # pedido de gerar o próprio ponto normalmente.
+            resultado_fidelidade = repositorio_fidelidade.registrar_pedido_concluido(
+                cliente_id, pedido_id, banco=banco
+            )
+
         except Exception:
             banco.rollback()
             raise
@@ -1030,6 +1213,8 @@ class Pedidos(ctk.CTkFrame):
 
         return {
             "numero": numero,
+            "pedido_id": pedido_id,
+            "cliente_id": cliente_id,
             "cliente": nome_cliente,
             "endereco_cliente": self.obter_endereco_cliente(cliente_id),
             "data": data_str,
@@ -1039,7 +1224,8 @@ class Pedidos(ctk.CTkFrame):
             "acrescimo": entrega,
             "total": total_final,
             "pagamento": pagamento,
-            "observacao": ""
+            "observacao": "",
+            "fidelidade": resultado_fidelidade
         }
 
     # ======================================================
@@ -1123,6 +1309,21 @@ class Pedidos(ctk.CTkFrame):
 
             return
 
+        fidelidade_info = pedido_dados.get("fidelidade") or {}
+
+        if fidelidade_info.get("nova_recompensa"):
+
+            quantidade = fidelidade_info["recompensas_geradas"]
+            meta = config.obter_meta_fidelidade()
+
+            messagebox.showinfo(
+                "🎁 Recompensa de Fidelidade!",
+                f"Parabéns! {pedido_dados['cliente']} completou {meta} pedidos "
+                f"e ganhou {quantidade} pastel{'éis' if quantidade != 1 else ''} "
+                "grátis!\n\nA recompensa já está disponível para resgate na "
+                "tela de Fidelidade."
+            )
+
         if not self.imprimir_cupom.get():
 
             messagebox.showinfo(
@@ -1156,3 +1357,114 @@ class Pedidos(ctk.CTkFrame):
             )
 
         self.limpar_pedido()
+
+
+# ==========================================================
+# USAR RECOMPENSA — escolhe qual item do carrinho vira grátis
+# ==========================================================
+
+class JanelaUsarRecompensa(ctk.CTkToplevel):
+
+    def __init__(self, master, itens, ao_confirmar):
+        super().__init__(master.winfo_toplevel())
+
+        self.itens = itens
+        self.ao_confirmar = ao_confirmar
+
+        self.title("Usar Recompensa")
+        self.transient(master.winfo_toplevel())
+
+        self.montar_conteudo()
+
+        # Tamanho aplicado só depois que o Tk roda os `after` internos
+        # do CustomTkinter — direto no __init__ a janela abre minúscula.
+        self.after(60, self._ajustar_tamanho)
+
+        self.grab_set()
+
+    # ======================================================
+
+    def _ajustar_tamanho(self):
+
+        self.update_idletasks()
+
+        largura = min(max(self.winfo_reqwidth(), 420), max(int(self.winfo_screenwidth() * 0.9), 420))
+        altura = min(max(self.winfo_reqheight(), 340), max(int(self.winfo_screenheight() * 0.85), 340))
+
+        self.geometry(f"{largura}x{altura}")
+        self.minsize(420, 340)
+
+    # ======================================================
+
+    def montar_conteudo(self):
+
+        ctk.CTkLabel(
+            self,
+            text="Qual item deste pedido vira o pastel grátis?",
+            font=("Arial", 16, "bold")
+        ).pack(padx=20, pady=(20, 5), anchor="w")
+
+        ctk.CTkLabel(
+            self,
+            text="O valor do item escolhido será zerado no total do pedido.",
+            font=("Arial", 12),
+            text_color="gray"
+        ).pack(padx=20, anchor="w")
+
+        self.tabela = ttk.Treeview(
+            self,
+            columns=("produto", "qtd", "valor"),
+            show="headings",
+            height=min(max(len(self.itens), 3), 8)
+        )
+        self.tabela.heading("produto", text="Produto")
+        self.tabela.heading("qtd", text="Qtd")
+        self.tabela.heading("valor", text="Valor")
+        self.tabela.column("produto", width=220)
+        self.tabela.column("qtd", width=60, anchor="center")
+        self.tabela.column("valor", width=90, anchor="e")
+
+        for indice, item in enumerate(self.itens):
+            self.tabela.insert(
+                "", "end",
+                iid=str(indice),
+                values=(item["nome"], item["qtd"], f"R$ {item['valor_unitario']:.2f}")
+            )
+
+        self.tabela.pack(fill="both", expand=True, padx=20, pady=15)
+
+        botoes = ctk.CTkFrame(self, fg_color="transparent")
+        botoes.pack(pady=(0, 20))
+
+        ctk.CTkButton(
+            botoes,
+            text="Confirmar",
+            width=120,
+            fg_color="#2a7",
+            hover_color="#186",
+            command=self.confirmar
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            botoes,
+            text="Cancelar",
+            width=120,
+            fg_color="#777",
+            hover_color="#555",
+            command=self.destroy
+        ).pack(side="left")
+
+    # ======================================================
+
+    def confirmar(self):
+
+        selecionado = self.tabela.selection()
+
+        if not selecionado:
+            messagebox.showwarning("Fidelidade", "Selecione um item da lista.")
+            return
+
+        indice = int(selecionado[0])
+
+        self.destroy()
+        self.ao_confirmar(indice)

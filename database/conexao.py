@@ -354,7 +354,79 @@ class Banco:
         )
         """)
 
+        # =====================================================
+        # FIDELIDADE (pontos por pedido concluído + recompensas)
+        # =====================================================
+
+        self._criar_tabelas_fidelidade()
+
         self.conexao.commit()
+
+    # =========================================================
+
+    def _criar_tabelas_fidelidade(self):
+        """`fidelidade` é um cache por cliente (total de pedidos e
+        recompensas disponíveis), sempre recalculado a partir de
+        `historico_fidelidade` — nunca editado incrementalmente, pra
+        não desalinhar do histórico real. `historico_fidelidade` é a
+        fonte da verdade, nunca apagada (nem no resgate)."""
+
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS fidelidade(
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            cliente_id INTEGER NOT NULL UNIQUE,
+
+            total_pedidos INTEGER DEFAULT 0,
+            recompensas_disponiveis INTEGER DEFAULT 0,
+
+            data_criacao TEXT,
+            data_atualizacao TEXT,
+
+            FOREIGN KEY(cliente_id)
+            REFERENCES clientes(id)
+
+        )
+        """)
+
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historico_fidelidade(
+
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            cliente_id INTEGER NOT NULL,
+            pedido_id INTEGER,
+
+            tipo TEXT NOT NULL,
+            alvo TEXT NOT NULL,
+            quantidade INTEGER NOT NULL,
+
+            data TEXT,
+            hora TEXT,
+            observacao TEXT,
+            usuario TEXT,
+
+            estornado INTEGER DEFAULT 0,
+
+            FOREIGN KEY(cliente_id)
+            REFERENCES clientes(id),
+
+            FOREIGN KEY(pedido_id)
+            REFERENCES pedidos(id)
+
+        )
+        """)
+
+        # Um mesmo pedido só pode gerar UMA linha de pontuação pra
+        # sempre (ativa ou estornada) — é o que impede duplicidade de
+        # ponto se `registrar_pedido_concluido` for chamado duas vezes
+        # pro mesmo pedido_id (ver repositorios/fidelidade.py).
+        self.cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_historico_fidelidade_pedido_unico
+        ON historico_fidelidade(pedido_id)
+        WHERE tipo='PEDIDO_CONCLUIDO'
+        """)
 
     # =========================================================
 

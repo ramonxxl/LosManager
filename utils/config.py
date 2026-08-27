@@ -22,6 +22,7 @@ PADROES = {
     "loja_telefone": "(11) 99999-9999",
     "impressora_nome": "",
     "impressora_largura": "32",   # 32 = bobina 58mm | 48 = bobina 80mm
+    "fidelidade_meta_pedidos": "10",
 }
 
 _TABELA_CRIADA = False
@@ -96,6 +97,20 @@ def obter_largura_papel():
         return int(obter("impressora_largura"))
     except (TypeError, ValueError):
         return 32
+
+
+def obter_meta_fidelidade():
+    """Quantos pedidos concluídos o cliente precisa juntar pra ganhar 1
+    recompensa no Programa de Fidelidade — o único lugar onde esse
+    número mora, editável em Configurações (repositorios/fidelidade.py
+    e as telas sempre leem daqui, nunca hardcoded)."""
+
+    try:
+        meta = int(obter("fidelidade_meta_pedidos"))
+    except (TypeError, ValueError):
+        return 10
+
+    return meta if meta > 0 else 10
 
 
 def bloquear_venda_sem_estoque_ingrediente():
