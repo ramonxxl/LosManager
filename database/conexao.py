@@ -428,6 +428,60 @@ class Banco:
         WHERE tipo='PEDIDO_CONCLUIDO'
         """)
 
+        self._migrar_pedidos_antigos_para_fidelidade()
+
+    # =========================================================
+
+    def _migrar_pedidos_antigos_para_fidelidade(self):
+        """O Programa de Fidelidade foi adicionado depois de o sistema
+        já estar em uso — sem isso, todo o histórico de pedidos feitos
+        antes dele simplesmente não contaria pra meta de nenhum
+        cliente. Roda uma única vez (guardado por uma chave em
+        `configuracoes`, não pela existência da tabela — assim
+        funciona tanto num banco novo quanto num que já tinha
+        `historico_fidelidade` vazia de uma versão anterior desta
+        mesma migração): registra, na ordem em que foram feitos, o
+        ponto de fidelidade de cada pedido já finalizado (não
+        cancelado) que tem um cliente identificado — reaproveitando
+        `registrar_pedido_concluido`, então gera recompensa a cada
+        cruzamento da meta exatamente como se tivesse acontecido pedido
+        a pedido. Cliente Balcão (sem cliente_id) nunca participou e
+        continua de fora."""
+
+        self.cursor.execute(
+            "CREATE TABLE IF NOT EXISTS configuracoes(chave TEXT PRIMARY KEY, valor TEXT)"
+        )
+
+        ja_migrado = self.cursor.execute(
+            "SELECT valor FROM configuracoes WHERE chave='fidelidade_backfill_executado'"
+        ).fetchone()
+
+        if ja_migrado is not None and ja_migrado[0] == "1":
+            return
+
+        # Import adiado: repositorios/fidelidade.py importa este módulo
+        # (database.conexao) — importar lá em cima criaria um ciclo.
+        from repositorios import fidelidade as repositorio_fidelidade
+
+        pedidos_antigos = self.cursor.execute(
+            """
+            SELECT id, cliente_id FROM pedidos
+            WHERE cliente_id IS NOT NULL
+              AND (status IS NULL OR status != 'Cancelado')
+            ORDER BY id
+            """
+        ).fetchall()
+
+        for pedido_id, cliente_id in pedidos_antigos:
+            repositorio_fidelidade.registrar_pedido_concluido(cliente_id, pedido_id, banco=self)
+
+        self.cursor.execute(
+            """
+            INSERT INTO configuracoes(chave, valor) VALUES('fidelidade_backfill_executado', '1')
+            ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor
+            """
+        )
+
     # =========================================================
 
     def _garantir_coluna(self, tabela, coluna, tipo):
