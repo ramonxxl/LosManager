@@ -19,9 +19,18 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from datetime import date, timedelta
 
 from database.conexao import Banco
 from repositorios import fidelidade as repositorio_fidelidade
+
+
+def _data_do_dia(indice):
+    """Uma data (dd/mm/aaaa) diferente por índice, pra cada pedido
+    antigo simulado cair num dia diferente — a regra de 1 ponto por dia
+    agrupa pela coluna `data` do pedido (ver repositorios/fidelidade.py)."""
+
+    return (date(2025, 1, 1) + timedelta(days=indice)).strftime("%d/%m/%Y")
 
 
 class TesteMigracaoRetroativa(unittest.TestCase):
@@ -54,7 +63,7 @@ class TesteMigracaoRetroativa(unittest.TestCase):
             """
             CREATE TABLE pedidos(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                numero INTEGER, cliente_id INTEGER, status TEXT
+                numero INTEGER, cliente_id INTEGER, status TEXT, data TEXT, hora TEXT
             )
             """
         )
@@ -63,10 +72,10 @@ class TesteMigracaoRetroativa(unittest.TestCase):
             "INSERT INTO clientes(nome, telefone) VALUES('João', '99999-9999')"
         ).lastrowid
 
-        for numero in range(1, 8):
+        for indice, numero in enumerate(range(1, 8)):
             conexao_crua.execute(
-                "INSERT INTO pedidos(numero, cliente_id, status) VALUES(?, ?, 'Finalizado')",
-                (numero, joao_id)
+                "INSERT INTO pedidos(numero, cliente_id, status, data) VALUES(?, ?, 'Finalizado', ?)",
+                (numero, joao_id, _data_do_dia(indice))
             )
 
         # Um pedido cancelado antigo não deve contar na migração.
@@ -74,20 +83,34 @@ class TesteMigracaoRetroativa(unittest.TestCase):
             "INSERT INTO clientes(nome, telefone) VALUES('Desistiu', '90000-0000')"
         ).lastrowid
         conexao_crua.execute(
-            "INSERT INTO pedidos(numero, cliente_id, status) VALUES(99, ?, 'Cancelado')",
-            (cancelado_id,)
+            "INSERT INTO pedidos(numero, cliente_id, status, data) VALUES(99, ?, 'Cancelado', ?)",
+            (cancelado_id, _data_do_dia(0))
         )
 
         # Pedido de Cliente Balcão (sem cliente_id) também não conta.
         conexao_crua.execute(
-            "INSERT INTO pedidos(numero, cliente_id, status) VALUES(100, NULL, 'Finalizado')"
+            "INSERT INTO pedidos(numero, cliente_id, status, data) VALUES(100, NULL, 'Finalizado', ?)",
+            (_data_do_dia(0),)
         )
+
+        # Cliente que fez 3 pedidos no MESMO dia antigo — a migração
+        # precisa contar só 1 ponto pra esse dia, não 3.
+        repetido_id = conexao_crua.execute(
+            "INSERT INTO clientes(nome, telefone) VALUES('Repetido', '90001-0000')"
+        ).lastrowid
+        mesmo_dia = _data_do_dia(50)
+        for numero in (201, 202, 203):
+            conexao_crua.execute(
+                "INSERT INTO pedidos(numero, cliente_id, status, data) VALUES(?, ?, 'Finalizado', ?)",
+                (numero, repetido_id, mesmo_dia)
+            )
 
         conexao_crua.commit()
         conexao_crua.close()
 
         self.joao_id = joao_id
         self.cancelado_id = cancelado_id
+        self.repetido_id = repetido_id
 
     def tearDown(self):
 
@@ -110,6 +133,11 @@ class TesteMigracaoRetroativa(unittest.TestCase):
 
             status_cancelado = repositorio_fidelidade.obter_status_cliente(self.cancelado_id, banco=banco)
             self.assertEqual(status_cancelado["total_pedidos"], 0)
+
+            # 3 pedidos antigos no mesmo dia contam como 1 só, mesmo
+            # retroativamente.
+            status_repetido = repositorio_fidelidade.obter_status_cliente(self.repetido_id, banco=banco)
+            self.assertEqual(status_repetido["total_pedidos"], 1)
         finally:
             self._fechar(banco)
 

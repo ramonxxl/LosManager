@@ -9,9 +9,19 @@ montar a tela (senão a tela gravaria/leria do losmanager.db real).
 """
 
 import unittest
+from datetime import date, timedelta
 
 from database import conexao
 from testes.gui_ambiente import ambiente_grafico, fechar_janela
+
+
+def _data_do_dia(indice):
+    """Uma data (dd/mm/aaaa) diferente por índice — a regra de 1 ponto
+    por dia (repositorios/fidelidade.py) agrupa pela coluna `data` do
+    pedido, então cada pedido de teste precisa de um dia distinto pra
+    contar como pedidos separados."""
+
+    return (date(2026, 1, 1) + timedelta(days=indice)).strftime("%d/%m/%Y")
 
 
 class TesteTelaFidelidade(unittest.TestCase):
@@ -47,15 +57,17 @@ class TesteTelaFidelidade(unittest.TestCase):
         self.banco_teste.executar("INSERT INTO clientes(nome, telefone) VALUES('Maria', '98888-8888')")
         maria_id = self.banco_teste.ultimo_id()
 
-        for numero in range(1, 8):
+        for indice, numero in enumerate(range(1, 8)):
             self.banco_teste.executar(
-                "INSERT INTO pedidos(numero, status) VALUES(?, 'Finalizado')", (numero,)
+                "INSERT INTO pedidos(numero, status, data) VALUES(?, 'Finalizado', ?)",
+                (numero, _data_do_dia(indice))
             )
             repositorio_fidelidade.registrar_pedido_concluido(joao_id, self.banco_teste.ultimo_id())
 
-        for numero in range(100, 110):
+        for indice, numero in enumerate(range(100, 110)):
             self.banco_teste.executar(
-                "INSERT INTO pedidos(numero, status) VALUES(?, 'Finalizado')", (numero,)
+                "INSERT INTO pedidos(numero, status, data) VALUES(?, 'Finalizado', ?)",
+                (numero, _data_do_dia(indice))
             )
             repositorio_fidelidade.registrar_pedido_concluido(maria_id, self.banco_teste.ultimo_id())
 

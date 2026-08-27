@@ -31,13 +31,29 @@ Modelo de dados (ver `database/conexao.py`):
   ser negativo num AJUSTE_MANUAL de remoção). Um `pedido_id` só pode
   ter UMA linha PEDIDO_CONCLUIDO pra sempre — garantido por um índice
   único parcial no banco (ver `_criar_tabelas_fidelidade`), então
-  registrar o mesmo pedido duas vezes não duplica ponto.
+  registrar o mesmo pedido duas vezes não duplica ponto. A `data`
+  gravada nessa linha é a do PRÓPRIO PEDIDO (`pedidos.data`), não a de
+  quando o ponto foi registrado — importa pra regra abaixo, e pra a
+  migração retroativa (`database/conexao.py`) não jogar todo o
+  histórico antigo pro dia em que ela rodou.
+
+Regra de 1 ponto por dia: pedidos do MESMO cliente no MESMO dia não
+somam pontos separados — um cliente que compra pastel, depois doce,
+depois refrigerante no mesmo dia conta como 1 pedido de fidelidade, não
+3. Por isso `total_pedidos` conta DIAS DISTINTOS com pelo menos 1
+pedido válido, não pedidos individuais — ver fórmula abaixo. Cada
+pedido do dia ainda ganha sua própria linha em `historico_fidelidade`
+(útil pro histórico/auditoria e pra "promover" outro pedido do mesmo
+dia automaticamente se o que tinha contado for cancelado — ver
+`estornar_pedido_concluido`), só não move `total_pedidos` sozinho.
 
 Fórmula (sempre recomputada — nunca um contador incremental solto):
 
-    total_pedidos = SUM(quantidade) de linhas alvo='pedidos' que
-                    valem (PEDIDO_CONCLUIDO não estornado, ou
-                    AJUSTE_MANUAL), nunca menor que 0
+    total_pedidos = COUNT(DISTINCT data) de linhas PEDIDO_CONCLUIDO
+                    não estornadas
+                    + SUM(quantidade) de linhas AJUSTE_MANUAL
+                      alvo='pedidos'
+                    nunca menor que 0
 
     recompensas_disponiveis = max(0,
         (total_pedidos // META)              # geradas automaticamente
@@ -110,9 +126,27 @@ def _obter_meta(banco):
     return 10
 
 
-def _inserir_historico(banco, cliente_id, pedido_id, tipo, alvo, quantidade, observacao="", usuario=""):
+def _data_hora_pedido(banco, pedido_id):
+    """Data/hora do PRÓPRIO pedido (`pedidos.data`/`pedidos.hora`), não
+    "agora" — a regra de 1 ponto por dia (ver docstring do módulo)
+    precisa agrupar pelo dia em que o pedido foi feito, não pelo dia em
+    que ele foi registrado na fidelidade (na migração retroativa isso
+    seria sempre "hoje", muito depois do pedido de verdade). Sem
+    pedido_id, ou pedido sem data gravada, cai em `_agora()`."""
 
-    data_str, hora_str = _agora()
+    if pedido_id is not None:
+
+        linha = banco.buscar_um("SELECT data, hora FROM pedidos WHERE id=?", (pedido_id,))
+
+        if linha and linha[0]:
+            return linha[0], linha[1] or ""
+
+    return _agora()
+
+
+def _inserir_historico(banco, cliente_id, pedido_id, tipo, alvo, quantidade, observacao="", usuario="", data_hora=None):
+
+    data_str, hora_str = data_hora if data_hora else _agora()
 
     banco.executar_sem_commit(
         """
@@ -125,18 +159,32 @@ def _inserir_historico(banco, cliente_id, pedido_id, tipo, alvo, quantidade, obs
 
 
 def _calcular_total_pedidos(banco, cliente_id):
+    """Conta DIAS distintos com pelo menos 1 pedido válido, não
+    pedidos individuais — vários pedidos do mesmo cliente no mesmo dia
+    somam só 1. Cancelar um deles não derruba o dia enquanto sobrar
+    outro pedido daquele dia ainda não estornado ("promoção"
+    automática, de graça, só por isso ser um COUNT(DISTINCT ...) em vez
+    de um contador manual)."""
 
-    resultado = banco.buscar_um(
+    dias_com_pedido = banco.buscar_um(
+        """
+        SELECT COUNT(DISTINCT data)
+        FROM historico_fidelidade
+        WHERE cliente_id=? AND alvo=? AND tipo=? AND estornado=0
+        """,
+        (cliente_id, ALVO_PEDIDOS, TIPO_PEDIDO_CONCLUIDO)
+    )[0]
+
+    ajuste = banco.buscar_um(
         """
         SELECT COALESCE(SUM(quantidade), 0)
         FROM historico_fidelidade
-        WHERE cliente_id=? AND alvo=?
-          AND ((tipo=? AND estornado=0) OR tipo=?)
+        WHERE cliente_id=? AND alvo=? AND tipo=?
         """,
-        (cliente_id, ALVO_PEDIDOS, TIPO_PEDIDO_CONCLUIDO, TIPO_AJUSTE_MANUAL)
-    )
+        (cliente_id, ALVO_PEDIDOS, TIPO_AJUSTE_MANUAL)
+    )[0]
 
-    return max(0, resultado[0] if resultado else 0)
+    return max(0, dias_com_pedido + ajuste)
 
 
 def _calcular_recompensas_disponiveis(banco, cliente_id, total_pedidos):
@@ -253,7 +301,34 @@ def registrar_pedido_concluido(cliente_id, pedido_id, banco=None):
         banco, cliente_id, _calcular_total_pedidos(banco, cliente_id)
     )
 
-    _inserir_historico(banco, cliente_id, pedido_id, TIPO_PEDIDO_CONCLUIDO, ALVO_PEDIDOS, 1)
+    # A data usada é a do PRÓPRIO pedido (não "agora") — é o que faz o
+    # COUNT(DISTINCT data) de _calcular_total_pedidos agrupar certo,
+    # inclusive na migração retroativa (ver database/conexao.py).
+    data_hora_pedido = _data_hora_pedido(banco, pedido_id)
+    data_pedido = data_hora_pedido[0]
+
+    # Cliente já tem outro pedido válido no mesmo dia? Esse aqui ainda
+    # entra no histórico (auditoria, e pra poder "promover" sozinho se
+    # o outro for cancelado depois), só não soma um 2º ponto no mesmo
+    # dia — regra: pastel + doce + refrigerante no mesmo dia = 1 pedido
+    # de fidelidade, não 3.
+    ja_tinha_pedido_no_dia = banco.buscar_um(
+        """
+        SELECT COUNT(*) FROM historico_fidelidade
+        WHERE cliente_id=? AND tipo=? AND data=? AND estornado=0
+        """,
+        (cliente_id, TIPO_PEDIDO_CONCLUIDO, data_pedido)
+    )[0] > 0
+
+    observacao = (
+        "Cliente já tinha um pedido nesse dia — não soma ponto adicional"
+        if ja_tinha_pedido_no_dia else ""
+    )
+
+    _inserir_historico(
+        banco, cliente_id, pedido_id, TIPO_PEDIDO_CONCLUIDO, ALVO_PEDIDOS, 1,
+        observacao=observacao, data_hora=data_hora_pedido
+    )
 
     registro = _recalcular(banco, cliente_id)
 
@@ -262,7 +337,8 @@ def registrar_pedido_concluido(cliente_id, pedido_id, banco=None):
     if geradas > 0:
         _inserir_historico(
             banco, cliente_id, pedido_id, TIPO_RECOMPENSA_GERADA, ALVO_RECOMPENSAS, geradas,
-            observacao=f"Meta de {_obter_meta(banco)} pedidos atingida"
+            observacao=f"Meta de {_obter_meta(banco)} pedidos atingida",
+            data_hora=data_hora_pedido
         )
 
     return {"nova_recompensa": geradas > 0, "recompensas_geradas": geradas, **registro}
@@ -330,7 +406,8 @@ def reverter_estorno_pedido(pedido_id, banco=None):
     if geradas > 0:
         _inserir_historico(
             banco, cliente_id, pedido_id, TIPO_RECOMPENSA_GERADA, ALVO_RECOMPENSAS, geradas,
-            observacao="Recompensa restabelecida (cancelamento revertido)"
+            observacao="Recompensa restabelecida (cancelamento revertido)",
+            data_hora=_data_hora_pedido(banco, pedido_id)
         )
 
 

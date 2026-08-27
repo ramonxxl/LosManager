@@ -9,6 +9,7 @@ Rodar com:
 """
 
 import unittest
+from datetime import date, timedelta
 
 from database.conexao import Banco
 from repositorios import fidelidade as repositorio_fidelidade
@@ -19,6 +20,19 @@ class TesteBase(unittest.TestCase):
 
     def setUp(self):
         self.banco = Banco(":memory:")
+        # Cada chamada padrão de criar_pedido() sem `data` explícita
+        # pega o próximo dia desta sequência — garante que pedidos
+        # "normais" de um teste caem em dias diferentes (a regra de 1
+        # ponto por dia é testada à parte, passando `data` igual de
+        # propósito).
+        self._proximo_dia = 0
+
+    def _proxima_data(self):
+
+        dia = date(2026, 1, 1) + timedelta(days=self._proximo_dia)
+        self._proximo_dia += 1
+
+        return dia.strftime("%d/%m/%Y")
 
     def criar_cliente(self, nome="Cliente Teste", telefone="99999-0000"):
 
@@ -28,17 +42,21 @@ class TesteBase(unittest.TestCase):
         )
         return self.banco.ultimo_id()
 
-    def criar_pedido(self, numero=1):
+    def criar_pedido(self, numero=1, data=None):
+
+        if data is None:
+            data = self._proxima_data()
 
         self.banco.executar(
-            "INSERT INTO pedidos(numero, status) VALUES(?, 'Finalizado')",
-            (numero,)
+            "INSERT INTO pedidos(numero, status, data) VALUES(?, 'Finalizado', ?)",
+            (numero, data)
         )
         return self.banco.ultimo_id()
 
     def concluir_pedidos(self, cliente_id, quantidade, numero_inicial=1):
         """Registra `quantidade` pedidos concluídos seguidos pro
-        cliente, retornando a lista de pedido_ids gerados."""
+        cliente, cada um num dia diferente, retornando a lista de
+        pedido_ids gerados."""
 
         ids = []
 
@@ -115,6 +133,74 @@ class TestePontuacao(TesteBase):
 
         status = repositorio_fidelidade.obter_status_cliente(cliente_id, banco=self.banco)
         self.assertEqual(status["faltam"], 3)
+
+
+class TesteUmPontoPorDia(TesteBase):
+    """Vários pedidos do mesmo cliente no mesmo dia contam como 1 só"""
+
+    def test_tres_pedidos_no_mesmo_dia_somam_um_ponto_so(self):
+        """Pastel + doce + refrigerante no mesmo dia contam 1 pedido de fidelidade, não 3"""
+        cliente_id = self.criar_cliente()
+        hoje = "10/03/2026"
+
+        pastel_id = self.criar_pedido(1, data=hoje)
+        doce_id = self.criar_pedido(2, data=hoje)
+        refrigerante_id = self.criar_pedido(3, data=hoje)
+
+        repositorio_fidelidade.registrar_pedido_concluido(cliente_id, pastel_id, banco=self.banco)
+        repositorio_fidelidade.registrar_pedido_concluido(cliente_id, doce_id, banco=self.banco)
+        resultado = repositorio_fidelidade.registrar_pedido_concluido(cliente_id, refrigerante_id, banco=self.banco)
+
+        self.assertEqual(resultado["total_pedidos"], 1)
+
+        status = repositorio_fidelidade.obter_status_cliente(cliente_id, banco=self.banco)
+        self.assertEqual(status["total_pedidos"], 1)
+
+    def test_pedido_em_outro_dia_soma_ponto_novo(self):
+        """Um pedido em outro dia já soma um 2º ponto normalmente"""
+        cliente_id = self.criar_cliente()
+
+        pedido_hoje = self.criar_pedido(1, data="10/03/2026")
+        pedido_amanha = self.criar_pedido(2, data="11/03/2026")
+
+        repositorio_fidelidade.registrar_pedido_concluido(cliente_id, pedido_hoje, banco=self.banco)
+        repositorio_fidelidade.registrar_pedido_concluido(cliente_id, pedido_amanha, banco=self.banco)
+
+        status = repositorio_fidelidade.obter_status_cliente(cliente_id, banco=self.banco)
+        self.assertEqual(status["total_pedidos"], 2)
+
+    def test_historico_guarda_cada_pedido_do_dia_mesmo_sem_somar_ponto(self):
+        """O 2º/3º pedido do mesmo dia ainda aparece no histórico, só não soma ponto"""
+        cliente_id = self.criar_cliente()
+        hoje = "10/03/2026"
+
+        self.criar_pedido(1, data=hoje)
+        pedido_id_1 = self.banco.ultimo_id()
+        repositorio_fidelidade.registrar_pedido_concluido(cliente_id, pedido_id_1, banco=self.banco)
+
+        pedido_id_2 = self.criar_pedido(2, data=hoje)
+        repositorio_fidelidade.registrar_pedido_concluido(cliente_id, pedido_id_2, banco=self.banco)
+
+        historico = repositorio_fidelidade.historico_cliente(cliente_id, banco=self.banco)
+        self.assertEqual(len(historico), 2)
+
+    def test_cancelar_o_pedido_do_dia_promove_outro_pedido_do_mesmo_dia(self):
+        """Cancelar o pedido que tinha contado no dia não derruba o ponto se sobrar outro do mesmo dia"""
+        cliente_id = self.criar_cliente()
+        hoje = "10/03/2026"
+
+        primeiro_id = self.criar_pedido(1, data=hoje)
+        repositorio_fidelidade.registrar_pedido_concluido(cliente_id, primeiro_id, banco=self.banco)
+
+        segundo_id = self.criar_pedido(2, data=hoje)
+        repositorio_fidelidade.registrar_pedido_concluido(cliente_id, segundo_id, banco=self.banco)
+
+        # Cancela o pedido que tinha contado — o outro do mesmo dia
+        # assume o lugar dele automaticamente.
+        repositorio_fidelidade.estornar_pedido_concluido(primeiro_id, banco=self.banco)
+
+        status = repositorio_fidelidade.obter_status_cliente(cliente_id, banco=self.banco)
+        self.assertEqual(status["total_pedidos"], 1)
 
 
 class TesteCancelamento(TesteBase):
