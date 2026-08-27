@@ -11,7 +11,8 @@ from utils import caixa_estado
 from utils import pedido_rascunho
 from repositorios import motoboys as repositorio_motoboys
 
-SEM_MOTOBOY = "— Nenhum —"
+SEM_MOTOBOY = "— Selecione —"
+RETIRADA = "Retirada (sem motoboy)"
 
 
 class Pedidos(ctk.CTkFrame):
@@ -382,12 +383,12 @@ class Pedidos(ctk.CTkFrame):
 
         ctk.CTkLabel(
             rodape,
-            text="Motoboy"
+            text="Motoboy *"
         ).grid(row=1, column=0, padx=10, pady=(0, 10))
 
         self.motoboy_combo = ctk.CTkComboBox(
             rodape,
-            values=[SEM_MOTOBOY],
+            values=[SEM_MOTOBOY, RETIRADA],
             width=180
         )
         self.motoboy_combo.set(SEM_MOTOBOY)
@@ -438,7 +439,7 @@ class Pedidos(ctk.CTkFrame):
 
         self.motoboys_cache = repositorio_motoboys.listar_ativos()
 
-        nomes = [SEM_MOTOBOY] + [nome for _id, nome in self.motoboys_cache]
+        nomes = [SEM_MOTOBOY, RETIRADA] + [nome for _id, nome in self.motoboys_cache]
 
         self.motoboy_combo.configure(values=nomes)
         self.motoboy_combo.set(SEM_MOTOBOY)
@@ -1096,6 +1097,16 @@ class Pedidos(ctk.CTkFrame):
             messagebox.showwarning(
                 "Pedido",
                 "Nenhum produto foi adicionado."
+            )
+
+            return
+
+        if self.motoboy_combo.get() == SEM_MOTOBOY:
+
+            messagebox.showwarning(
+                "Motoboy",
+                "Escolha o motoboy responsável pela entrega, ou marque "
+                f"\"{RETIRADA}\" se o cliente for retirar o pedido no local."
             )
 
             return

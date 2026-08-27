@@ -8,6 +8,9 @@ from utils import busca
 from utils import calendario
 from utils import tema
 from utils import responsivo
+from repositorios import motoboys as repositorio_motoboys
+
+SEM_MOTOBOY = "Retirada (sem motoboy)"
 
 
 class Relatorios(ctk.CTkFrame):
@@ -169,6 +172,15 @@ class Relatorios(ctk.CTkFrame):
             command=self.reverter_cancelamento
         ).pack(side="left", padx=(10, 0))
 
+        ctk.CTkButton(
+            botoes_pedido,
+            text="✏️ Editar Motoboy",
+            fg_color="#777",
+            hover_color="#555",
+            width=170,
+            command=self.editar_motoboy
+        ).pack(side="left", padx=(10, 0))
+
         # Texto explicativo abaixo dos botões, e com `wraplength`: ao
         # lado deles e sem quebra, ele esticava a linha para ~1900px e
         # ficava cortado em telas 1366x768.
@@ -176,8 +188,10 @@ class Relatorios(ctk.CTkFrame):
             acoes_pedido,
             text="Cancelar devolve automaticamente ao estoque os produtos e "
                  "ingredientes usados no pedido. Reverter faz o inverso, caso "
-                 "o cancelamento tenha sido por engano. Ambos pedem a senha "
-                 "de administrador e o pedido continua no histórico.",
+                 "o cancelamento tenha sido por engano. Editar Motoboy só "
+                 "corrige quem ficou com a entrega, sem mexer no resto do "
+                 "pedido. Todos pedem a senha de administrador e o pedido "
+                 "continua no histórico.",
             font=("Arial", 12),
             text_color="gray",
             wraplength=900,
@@ -523,6 +537,64 @@ class Relatorios(ctk.CTkFrame):
 
         self.carregar_pedidos()
         self.aplicar_filtro()
+
+    # ======================================================
+    # EDITAR MOTOBOY (corrige um nome esquecido na hora do pedido)
+    # ======================================================
+
+    def editar_motoboy(self):
+
+        selecionado = self.tabela.selection()
+
+        if not selecionado:
+            messagebox.showwarning(
+                "Relatórios",
+                "Selecione um pedido na lista para editar o motoboy."
+            )
+            return
+
+        valores = self.tabela.item(selecionado[0], "values")
+        pedido_id, numero = valores[0], valores[1]
+
+        senha_cadastrada = config.obter("senha_reset").strip()
+
+        if not senha_cadastrada:
+            messagebox.showwarning(
+                "Segurança",
+                "Você ainda não cadastrou uma senha de administrador.\n\n"
+                "Vá em Configurações → Segurança e cadastre uma senha antes "
+                "de editar o motoboy de um pedido."
+            )
+            return
+
+        janela_senha = ctk.CTkInputDialog(
+            text="Digite a senha de administrador para editar o motoboy:",
+            title="Confirmar Senha"
+        )
+        senha_digitada = janela_senha.get_input()
+
+        if senha_digitada is None:
+            return
+
+        if senha_digitada != senha_cadastrada:
+            messagebox.showerror("Segurança", "Senha incorreta.")
+            return
+
+        motoboy_atual = banco.buscar_um(
+            """
+            SELECT m.nome FROM pedidos p
+            LEFT JOIN motoboys m ON m.id = p.motoboy_id
+            WHERE p.id = ?
+            """,
+            (pedido_id,)
+        )
+        nome_atual = motoboy_atual[0] if motoboy_atual and motoboy_atual[0] else SEM_MOTOBOY
+
+        def ao_salvar():
+            self.carregar_pedidos()
+            self.aplicar_filtro()
+
+        JanelaEditarMotoboy(self, pedido_id, numero, nome_atual, ao_salvar)
 
     # ======================================================
 
@@ -992,3 +1064,104 @@ class JanelaDetalhePedido(ctk.CTkToplevel):
             width=120,
             command=self.destroy
         ).pack(anchor="e", pady=(12, 0))
+
+
+# ==========================================================
+# EDITAR MOTOBOY — popup simples pra corrigir só esse campo
+# ==========================================================
+
+class JanelaEditarMotoboy(ctk.CTkToplevel):
+
+    def __init__(self, master, pedido_id, numero, motoboy_atual, ao_salvar):
+        super().__init__(master.winfo_toplevel())
+
+        self.pedido_id = pedido_id
+        self.ao_salvar = ao_salvar
+
+        self.title("Editar Motoboy")
+        self.transient(master.winfo_toplevel())
+
+        self.montar_conteudo(numero, motoboy_atual)
+
+        # Tamanho aplicado só depois que o Tk roda os `after` internos
+        # do CustomTkinter — direto no __init__ a janela abre minúscula.
+        self.after(60, self._ajustar_tamanho)
+
+        self.grab_set()
+
+    # ======================================================
+
+    def _ajustar_tamanho(self):
+
+        self.update_idletasks()
+
+        largura = min(max(self.winfo_reqwidth(), 380), max(int(self.winfo_screenwidth() * 0.9), 380))
+        altura = min(max(self.winfo_reqheight(), 220), max(int(self.winfo_screenheight() * 0.85), 220))
+
+        self.geometry(f"{largura}x{altura}")
+        self.minsize(380, 220)
+
+    # ======================================================
+
+    def montar_conteudo(self, numero, motoboy_atual):
+
+        ctk.CTkLabel(
+            self,
+            text=f"Pedido Nº {int(numero):04d}",
+            font=("Arial", 18, "bold")
+        ).pack(padx=20, pady=(20, 5), anchor="w")
+
+        ctk.CTkLabel(
+            self,
+            text="Corrige só o motoboy do pedido — o resto continua igual.",
+            font=("Arial", 12),
+            text_color="gray"
+        ).pack(padx=20, anchor="w")
+
+        self.motoboys_cache = repositorio_motoboys.listar_ativos()
+        nomes = [SEM_MOTOBOY] + [nome for _id, nome in self.motoboys_cache]
+
+        self.combo = ctk.CTkComboBox(self, values=nomes, width=280)
+        self.combo.set(motoboy_atual if motoboy_atual in nomes else SEM_MOTOBOY)
+        self.combo.pack(padx=20, pady=15)
+
+        botoes = ctk.CTkFrame(self, fg_color="transparent")
+        botoes.pack(pady=(5, 20))
+
+        ctk.CTkButton(
+            botoes,
+            text="Salvar",
+            width=120,
+            fg_color="#2a7",
+            hover_color="#186",
+            command=self.salvar
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            botoes,
+            text="Cancelar",
+            width=120,
+            fg_color="#777",
+            hover_color="#555",
+            command=self.destroy
+        ).pack(side="left")
+
+    # ======================================================
+
+    def salvar(self):
+
+        nome_escolhido = self.combo.get()
+
+        motoboy = next(
+            (m for m in self.motoboys_cache if m[1] == nome_escolhido),
+            None
+        )
+        motoboy_id = motoboy[0] if motoboy else None
+
+        banco.executar(
+            "UPDATE pedidos SET motoboy_id=? WHERE id=?",
+            (motoboy_id, self.pedido_id)
+        )
+
+        self.destroy()
+        self.ao_salvar()
