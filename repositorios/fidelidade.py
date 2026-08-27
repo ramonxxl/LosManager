@@ -563,6 +563,85 @@ def ajuste_manual(cliente_id, alvo, quantidade, justificativa, usuario, banco=No
 
 
 # ==========================================================
+# RESET GERAL (zera pedidos e recompensas de TODOS os clientes)
+# ==========================================================
+
+def zerar_todos_os_clientes(usuario, justificativa, banco=None):
+    """Zera pedidos e recompensas de TODOS os clientes participantes
+    de uma vez — ação administrativa protegida por senha + confirmação
+    dupla na tela (ver screens/fidelidade.py), pra casos como "vou
+    recomeçar a pontuação no início do mês". Exige justificativa e
+    quem autorizou. Retorna quantos clientes foram afetados (tinham
+    pedido ou recompensa pra zerar)."""
+
+    banco = banco or conexao.banco
+
+    justificativa = (justificativa or "").strip()
+    if not justificativa:
+        raise FidelidadeInvalida("Informe a justificativa do reset geral.")
+
+    usuario = (usuario or "").strip()
+    if not usuario:
+        raise FidelidadeInvalida("Informe quem está autorizando o reset geral.")
+
+    clientes = banco.buscar(
+        "SELECT cliente_id FROM fidelidade WHERE total_pedidos > 0 OR recompensas_disponiveis > 0"
+    )
+
+    for (cliente_id,) in clientes:
+        _zerar_cliente(banco, cliente_id, justificativa, usuario)
+
+    return len(clientes)
+
+
+def _zerar_cliente(banco, cliente_id, justificativa, usuario):
+    """Não apaga nada do histórico — em vez disso: estorna todo
+    PEDIDO_CONCLUIDO ainda ativo (o mesmo mecanismo de um cancelamento,
+    então `_calcular_total_pedidos` para de contar esses dias) e grava
+    um AJUSTE_MANUAL cancelando qualquer ajuste de pedidos e
+    resgate/ajuste de recompensa anterior. O ajuste de recompensa é
+    calculado pra deixar a "dívida" de resgates já feitos zerada dali
+    pra frente — sem isso, um resgate antigo continuaria descontando
+    pra sempre e atrasaria a próxima recompensa depois do reset."""
+
+    ajuste_pedidos_prev = banco.buscar_um(
+        "SELECT COALESCE(SUM(quantidade), 0) FROM historico_fidelidade WHERE cliente_id=? AND alvo=? AND tipo=?",
+        (cliente_id, ALVO_PEDIDOS, TIPO_AJUSTE_MANUAL)
+    )[0]
+
+    ajuste_recompensas_prev = banco.buscar_um(
+        "SELECT COALESCE(SUM(quantidade), 0) FROM historico_fidelidade WHERE cliente_id=? AND alvo=? AND tipo=?",
+        (cliente_id, ALVO_RECOMPENSAS, TIPO_AJUSTE_MANUAL)
+    )[0]
+
+    resgatadas_prev = banco.buscar_um(
+        "SELECT COALESCE(SUM(quantidade), 0) FROM historico_fidelidade WHERE cliente_id=? AND tipo=?",
+        (cliente_id, TIPO_RECOMPENSA_RESGATADA)
+    )[0]
+
+    banco.executar_sem_commit(
+        "UPDATE historico_fidelidade SET estornado=1 WHERE cliente_id=? AND tipo=? AND estornado=0",
+        (cliente_id, TIPO_PEDIDO_CONCLUIDO)
+    )
+
+    if ajuste_pedidos_prev != 0:
+        _inserir_historico(
+            banco, cliente_id, None, TIPO_AJUSTE_MANUAL, ALVO_PEDIDOS, -ajuste_pedidos_prev,
+            observacao=justificativa, usuario=usuario
+        )
+
+    delta_recompensas = resgatadas_prev - ajuste_recompensas_prev
+
+    if delta_recompensas != 0:
+        _inserir_historico(
+            banco, cliente_id, None, TIPO_AJUSTE_MANUAL, ALVO_RECOMPENSAS, delta_recompensas,
+            observacao=justificativa, usuario=usuario
+        )
+
+    _recalcular(banco, cliente_id)
+
+
+# ==========================================================
 # RESUMOS (Dashboard e Relatórios)
 # ==========================================================
 

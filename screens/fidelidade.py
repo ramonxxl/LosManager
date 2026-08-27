@@ -108,6 +108,40 @@ class Fidelidade(ctk.CTkFrame):
             justify="left"
         ).pack(anchor="w", pady=(8, 10))
 
+        # ---------------- Zona de perigo: zerar tudo ----------------
+
+        zona_perigo = ctk.CTkFrame(self.scroll, border_width=1, border_color="#a33")
+        zona_perigo.pack(fill="x", pady=(0, 15))
+
+        ctk.CTkLabel(
+            zona_perigo,
+            text="⚠️ Zona de Perigo",
+            font=("Arial", 14, "bold"),
+            text_color="#a33"
+        ).pack(anchor="w", padx=15, pady=(12, 2))
+
+        ctk.CTkLabel(
+            zona_perigo,
+            text="Zera pedidos e recompensas de TODOS os clientes participantes de "
+                 "uma vez (ex: recomeçar a pontuação no início de um mês novo). Não "
+                 "apaga o histórico — fica tudo registrado, só a contagem volta a "
+                 "zero. Pede a senha de administrador, uma justificativa e uma "
+                 "confirmação final.",
+            font=("Arial", 12),
+            text_color="gray",
+            wraplength=900,
+            justify="left"
+        ).pack(anchor="w", padx=15, pady=(0, 10))
+
+        ctk.CTkButton(
+            zona_perigo,
+            text="🗑 Zerar TODOS os Pontos e Recompensas",
+            fg_color="#a33",
+            hover_color="#822",
+            width=280,
+            command=self.zerar_tudo
+        ).pack(anchor="w", padx=15, pady=(0, 15))
+
         # ---------------- Tabela ----------------
 
         linhas = responsivo.linhas_para_tabela(self, self.scroll, pady_tabela=10)
@@ -263,6 +297,87 @@ class Fidelidade(ctk.CTkFrame):
             return
 
         JanelaAjusteFidelidade(self, cliente["id"], cliente["nome"], self.carregar)
+
+    # ======================================================
+    # ZERAR TODOS OS PONTOS (zona de perigo)
+    # ======================================================
+
+    def zerar_tudo(self):
+        """Reset geral protegido por verificação de 2 etapas: 1) senha
+        de administrador, 2) confirmação final explícita — além de
+        exigir justificativa e quem está autorizando, igual ao ajuste
+        manual individual."""
+
+        # Etapa 1: senha de administrador.
+        if not self._confirmar_senha("zerar os pontos de todos os clientes"):
+            return
+
+        janela_justificativa = ctk.CTkInputDialog(
+            text="Justificativa do reset geral (obrigatória):\n"
+                 "Ex: Vou começar a pontuação no início do mês 9.",
+            title="Zerar Todos os Pontos"
+        )
+        justificativa = janela_justificativa.get_input()
+
+        if justificativa is None:
+            return
+
+        if not justificativa.strip():
+            messagebox.showwarning("Fidelidade", "Informe a justificativa do reset geral.")
+            return
+
+        janela_usuario = ctk.CTkInputDialog(
+            text="Nome de quem está autorizando o reset geral:",
+            title="Zerar Todos os Pontos"
+        )
+        usuario = janela_usuario.get_input()
+
+        if usuario is None:
+            return
+
+        if not usuario.strip():
+            messagebox.showwarning("Fidelidade", "Informe quem está autorizando o reset geral.")
+            return
+
+        # Etapa 2: confirmação final explícita — depois de coletar
+        # senha/justificativa/usuário, ainda precisa confirmar de novo
+        # antes de mexer em TODOS os clientes de uma vez.
+        confirmar = messagebox.askyesno(
+            "Confirmação final",
+            "Isso vai ZERAR os pontos e recompensas de TODOS os clientes "
+            "participantes do Programa de Fidelidade.\n\n"
+            f"Justificativa: {justificativa.strip()}\n\n"
+            "Essa ação não pode ser desfeita (fica registrada no histórico "
+            "de cada cliente, mas a contagem não volta sozinha). Deseja "
+            "continuar mesmo assim?"
+        )
+
+        if not confirmar:
+            return
+
+        try:
+            afetados = repositorio_fidelidade.zerar_todos_os_clientes(
+                usuario, justificativa, banco=banco
+            )
+        except repositorio_fidelidade.FidelidadeInvalida as erro:
+            banco.rollback()
+            messagebox.showwarning("Fidelidade", str(erro))
+            return
+        except Exception as erro:
+            banco.rollback()
+            messagebox.showerror(
+                "Erro ao zerar pontos",
+                f"Não foi possível zerar os pontos de todos os clientes:\n\n{erro}"
+            )
+            return
+
+        banco.commit()
+
+        messagebox.showinfo(
+            "Fidelidade",
+            f"Pronto! {afetados} cliente(s) tiveram pontos/recompensas zerados."
+        )
+        self.carregar()
 
 
 # ==========================================================

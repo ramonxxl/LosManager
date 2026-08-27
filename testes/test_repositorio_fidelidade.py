@@ -203,6 +203,100 @@ class TesteUmPontoPorDia(TesteBase):
         self.assertEqual(status["total_pedidos"], 1)
 
 
+class TesteZerarTodos(TesteBase):
+    """Reset geral: zera pedidos e recompensas de todos os clientes de uma vez"""
+
+    def test_zera_pedidos_e_recompensas_do_cliente(self):
+        """Cliente com pedidos e recompensa some do saldo depois do reset geral"""
+        cliente_id = self.criar_cliente()
+        self.concluir_pedidos(cliente_id, 12)
+
+        afetados = repositorio_fidelidade.zerar_todos_os_clientes(
+            "Ramon", "Início do mês 9", banco=self.banco
+        )
+
+        self.assertEqual(afetados, 1)
+
+        status = repositorio_fidelidade.obter_status_cliente(cliente_id, banco=self.banco)
+        self.assertEqual(status["total_pedidos"], 0)
+        self.assertEqual(status["recompensas_disponiveis"], 0)
+
+    def test_so_conta_clientes_que_tinham_algo_pra_zerar(self):
+        """Cliente sem nenhum ponto não entra na contagem de afetados"""
+        cliente_com_pontos = self.criar_cliente("Com Pontos")
+        self.concluir_pedidos(cliente_com_pontos, 2)
+
+        cliente_zerado = self.criar_cliente("Zerado")
+        # Existe na tabela fidelidade só se tiver algum evento; sem
+        # nenhum pedido, nem chega a aparecer — então só o primeiro
+        # deve ser contado.
+        afetados = repositorio_fidelidade.zerar_todos_os_clientes(
+            "Ramon", "Início do mês 9", banco=self.banco
+        )
+
+        self.assertEqual(afetados, 1)
+
+    def test_sem_justificativa_levanta_erro(self):
+        """Reset geral sem justificativa é rejeitado"""
+        with self.assertRaises(repositorio_fidelidade.FidelidadeInvalida):
+            repositorio_fidelidade.zerar_todos_os_clientes("Ramon", "  ", banco=self.banco)
+
+    def test_sem_usuario_levanta_erro(self):
+        """Reset geral sem informar quem autorizou é rejeitado"""
+        with self.assertRaises(repositorio_fidelidade.FidelidadeInvalida):
+            repositorio_fidelidade.zerar_todos_os_clientes("  ", "Início do mês 9", banco=self.banco)
+
+    def test_nao_apaga_historico(self):
+        """O histórico de fidelidade não é apagado pelo reset geral — só marca como estornado"""
+        cliente_id = self.criar_cliente()
+        ids = self.concluir_pedidos(cliente_id, 10)
+        repositorio_fidelidade.resgatar_recompensa(cliente_id, usuario="Caixa", banco=self.banco)
+
+        historico_antes = len(repositorio_fidelidade.historico_cliente(cliente_id, banco=self.banco))
+
+        repositorio_fidelidade.zerar_todos_os_clientes("Ramon", "Início do mês 9", banco=self.banco)
+
+        historico_depois = repositorio_fidelidade.historico_cliente(cliente_id, banco=self.banco)
+
+        # Nada foi apagado (o reset só marca como estornado / soma
+        # ajustes novos, nunca remove linha) — o histórico só cresce.
+        self.assertGreater(len(historico_depois), historico_antes)
+
+        # Os pedidos originais continuam lá, só marcados como estornados.
+        linhas_por_pedido = {linha[3]: linha for linha in historico_depois if linha[0] == repositorio_fidelidade.TIPO_PEDIDO_CONCLUIDO}
+        for pedido_id in ids:
+            self.assertEqual(linhas_por_pedido[pedido_id][9], 1)
+
+    def test_pedido_novo_apos_reset_conta_como_primeiro_de_novo(self):
+        """Depois do reset, o próximo pedido do cliente volta a contar como o 1º"""
+        cliente_id = self.criar_cliente()
+        self.concluir_pedidos(cliente_id, 5)
+
+        repositorio_fidelidade.zerar_todos_os_clientes("Ramon", "Início do mês 9", banco=self.banco)
+
+        novo_pedido_id = self.criar_pedido(999)
+        resultado = repositorio_fidelidade.registrar_pedido_concluido(cliente_id, novo_pedido_id, banco=self.banco)
+
+        self.assertEqual(resultado["total_pedidos"], 1)
+
+    def test_resgate_antigo_nao_atrasa_recompensa_apos_reset(self):
+        """Uma recompensa já resgatada antes do reset não atrapalha ganhar uma nova recompensa depois"""
+        cliente_id = self.criar_cliente()
+        self.concluir_pedidos(cliente_id, 10)
+        repositorio_fidelidade.resgatar_recompensa(cliente_id, usuario="Caixa", banco=self.banco)
+
+        repositorio_fidelidade.zerar_todos_os_clientes("Ramon", "Início do mês 9", banco=self.banco)
+
+        # 10 pedidos novos, em dias diferentes dos anteriores (o
+        # contador de datas do teste nunca repete), devem gerar 1 nova
+        # recompensa — não devem ficar "devendo" o resgate antigo.
+        self.concluir_pedidos(cliente_id, 10, numero_inicial=1000)
+
+        status = repositorio_fidelidade.obter_status_cliente(cliente_id, banco=self.banco)
+        self.assertEqual(status["total_pedidos"], 10)
+        self.assertEqual(status["recompensas_disponiveis"], 1)
+
+
 class TesteCancelamento(TesteBase):
     """Estorno de ponto ao cancelar pedido e reversão ao desfazer o cancelamento"""
 
