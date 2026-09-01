@@ -49,7 +49,7 @@ class Relatorios(ctk.CTkFrame):
 
         self.periodo = ctk.CTkSegmentedButton(
             topo,
-            values=["Hoje", "7 dias", "Este mês", "Tudo"],
+            values=["Hoje", "7 dias", "Este mês", "Mês anterior", "Tudo"],
             command=self.selecionar_periodo
         )
         self.periodo.set("Hoje")
@@ -65,52 +65,77 @@ class Relatorios(ctk.CTkFrame):
         self.busca.grid(row=0, column=3, padx=10)
         self.busca.bind("<KeyRelease>", lambda evento: self.aplicar_filtro())
 
-        # ---------------- Filtro por data exata ----------------
+        # ---------------- Filtro por intervalo de datas ----------------
         # Linha própria (não cabe junto com o período em telas 1366px)
         # e dentro de um frame, pra as larguras daqui não mexerem nas
-        # colunas do grid de cima. Quando há data escolhida, ela manda
-        # no filtro; clicar num período volta a valer o período.
+        # colunas do grid de cima. Quando há data inicial e/ou final
+        # escolhida, ela manda no filtro; clicar num período volta a
+        # valer o período. Escolher só a inicial filtra "a partir de";
+        # só a final filtra "até"; as duas juntas dão um intervalo
+        # (ex: um mês específico, ou qualquer range arbitrário — pro
+        # caso de "mês anterior" já existir um atalho pronto no
+        # Período acima, mas nada impede escolher outro intervalo à mão).
 
         linha_data = ctk.CTkFrame(topo, fg_color="transparent")
-        linha_data.grid(row=1, column=0, columnspan=4, sticky="w", padx=10, pady=(0, 12))
+        linha_data.grid(row=1, column=0, columnspan=4, sticky="w", padx=10, pady=(0, 6))
 
-        self.data_filtro = None
+        self.data_inicio_filtro = None
+        self.data_fim_filtro = None
 
         ctk.CTkButton(
             linha_data,
-            text="📅 Escolher data",
-            width=150,
-            command=self.abrir_calendario
+            text="📅 Data inicial",
+            width=140,
+            command=self.abrir_calendario_inicio
         ).pack(side="left")
 
-        self.lbl_data_filtro = ctk.CTkLabel(
+        ctk.CTkButton(
             linha_data,
-            text="Nenhuma data escolhida (usando o período acima)",
-            font=("Arial", 13, "italic"),
-            text_color="gray"
-        )
-        self.lbl_data_filtro.pack(side="left", padx=12)
+            text="📅 Data final",
+            width=140,
+            command=self.abrir_calendario_fim
+        ).pack(side="left", padx=(8, 0))
 
         self.botao_limpar_data = ctk.CTkButton(
             linha_data,
-            text="✖ Limpar data",
-            width=120,
+            text="✖ Limpar",
+            width=90,
             fg_color="#777",
             hover_color="#555",
-            command=self.limpar_data_filtro
+            command=self.limpar_intervalo_filtro
         )
-        # Só aparece quando há uma data escolhida (ver atualizar_rotulo_data)
+        # Só aparece quando há data inicial/final escolhida (ver
+        # atualizar_rotulo_intervalo)
+
+        self.lbl_data_filtro = ctk.CTkLabel(
+            topo,
+            text="Nenhuma data escolhida (usando o período acima)",
+            font=("Arial", 13, "italic"),
+            text_color="gray",
+            wraplength=900,
+            justify="left"
+        )
+        # Fica na linha de baixo (não dentro de linha_data, ao lado dos
+        # botões) porque um intervalo por extenso ("Mostrando de
+        # 01/08/2026 até 31/08/2026") junto com eles estourava a
+        # largura em 1366px.
+        self.lbl_data_filtro.grid(row=2, column=0, columnspan=4, sticky="w", padx=10, pady=(0, 6))
 
         # Filtro rápido pra achar pedidos que ficaram sem motoboy
         # registrado (esquecimento na hora do pedido, ver "Editar
         # Motoboy" abaixo) — sem ele, com o histórico cheio, procurar
-        # os poucos pedidos faltando era manual, um por um.
+        # os poucos pedidos faltando era manual, um por um. Linha
+        # própria, senão não cabia ao lado dos botões de data em
+        # 1366px.
+        linha_motoboy_filtro = ctk.CTkFrame(topo, fg_color="transparent")
+        linha_motoboy_filtro.grid(row=3, column=0, columnspan=4, sticky="w", padx=10, pady=(0, 12))
+
         self.somente_sem_motoboy = ctk.CTkCheckBox(
-            linha_data,
+            linha_motoboy_filtro,
             text="🛵 Só pedidos sem motoboy",
             command=self.aplicar_filtro
         )
-        self.somente_sem_motoboy.pack(side="left", padx=(20, 0))
+        self.somente_sem_motoboy.pack(side="left")
 
         # ---------------- Cards de resumo ----------------
 
@@ -780,46 +805,93 @@ class Relatorios(ctk.CTkFrame):
     # ======================================================
 
     def selecionar_periodo(self, valor=None):
-        """Clicar num período descarta a data exata — os dois filtros
-        são alternativos, não somados."""
+        """Clicar num período descarta o intervalo de datas — os dois
+        filtros são alternativos, não somados."""
 
-        if self.data_filtro is not None:
-            self.data_filtro = None
-            self.atualizar_rotulo_data()
+        if self.data_inicio_filtro is not None or self.data_fim_filtro is not None:
+            self.data_inicio_filtro = None
+            self.data_fim_filtro = None
+            self.atualizar_rotulo_intervalo()
 
         self.aplicar_filtro()
 
     # ======================================================
+    # INTERVALO DE DATAS (data inicial / data final, alternativo ao
+    # Período — permite qualquer intervalo arbitrário, ex: um mês
+    # específico de anos anteriores, não só os atalhos prontos)
+    # ======================================================
 
-    def abrir_calendario(self):
+    def abrir_calendario_inicio(self):
 
         calendario.escolher_data(
             self,
-            ao_escolher=self.definir_data_filtro,
-            data_inicial=self.data_filtro
+            ao_escolher=self.definir_data_inicio,
+            data_inicial=self.data_inicio_filtro
         )
 
-    def definir_data_filtro(self, data_texto):
+    def abrir_calendario_fim(self):
 
-        self.data_filtro = data_texto
-        self.atualizar_rotulo_data()
+        calendario.escolher_data(
+            self,
+            ao_escolher=self.definir_data_fim,
+            data_inicial=self.data_fim_filtro
+        )
+
+    def definir_data_inicio(self, data_texto):
+
+        self.data_inicio_filtro = data_texto
+
+        # Se a inicial ficou depois da final já escolhida, troca as
+        # duas em vez de deixar um intervalo invertido (que não bateria
+        # com nenhum pedido).
+        if self.data_fim_filtro and self._como_data(data_texto) > self._como_data(self.data_fim_filtro):
+            self.data_inicio_filtro, self.data_fim_filtro = self.data_fim_filtro, self.data_inicio_filtro
+
+        self.atualizar_rotulo_intervalo()
         self.aplicar_filtro()
 
-    def limpar_data_filtro(self):
+    def definir_data_fim(self, data_texto):
 
-        self.data_filtro = None
-        self.atualizar_rotulo_data()
+        self.data_fim_filtro = data_texto
+
+        if self.data_inicio_filtro and self._como_data(data_texto) < self._como_data(self.data_inicio_filtro):
+            self.data_inicio_filtro, self.data_fim_filtro = self.data_fim_filtro, self.data_inicio_filtro
+
+        self.atualizar_rotulo_intervalo()
         self.aplicar_filtro()
 
-    def atualizar_rotulo_data(self):
+    def limpar_intervalo_filtro(self):
 
-        if self.data_filtro:
+        self.data_inicio_filtro = None
+        self.data_fim_filtro = None
+        self.atualizar_rotulo_intervalo()
+        self.aplicar_filtro()
+
+    @staticmethod
+    def _como_data(texto):
+        return datetime.strptime(texto, "%d/%m/%Y")
+
+    def atualizar_rotulo_intervalo(self):
+
+        inicio = self.data_inicio_filtro
+        fim = self.data_fim_filtro
+
+        if inicio and fim:
+            texto = f"Mostrando apenas {inicio}" if inicio == fim else f"Mostrando de {inicio} até {fim}"
+        elif inicio:
+            texto = f"Mostrando a partir de {inicio}"
+        elif fim:
+            texto = f"Mostrando até {fim}"
+        else:
+            texto = None
+
+        if texto:
             self.lbl_data_filtro.configure(
-                text=f"Mostrando apenas {self.data_filtro}",
+                text=texto,
                 text_color=tema.COR_LARANJA,
                 font=("Arial", 13, "bold")
             )
-            self.botao_limpar_data.pack(side="left")
+            self.botao_limpar_data.pack(side="left", padx=(8, 0))
         else:
             self.lbl_data_filtro.configure(
                 text="Nenhuma data escolhida (usando o período acima)",
@@ -836,6 +908,14 @@ class Relatorios(ctk.CTkFrame):
         periodo = self.periodo.get()
         termo = self.busca.get().strip().lower()
 
+        # Mês anterior: dezembro do ano anterior quando "agora" é
+        # janeiro, senão o mês anterior no mesmo ano.
+        mes_anterior = agora.month - 1 or 12
+        ano_do_mes_anterior = agora.year - 1 if agora.month == 1 else agora.year
+
+        inicio_dt = self._como_data(self.data_inicio_filtro) if self.data_inicio_filtro else None
+        fim_dt = self._como_data(self.data_fim_filtro) if self.data_fim_filtro else None
+
         filtrados = []
 
         for pedido_id, numero, data, hora, cliente, total, pagamento, status, subtotal, desconto, acrescimo, motoboy in self.todos_pedidos:
@@ -845,11 +925,17 @@ class Relatorios(ctk.CTkFrame):
             except (ValueError, TypeError):
                 data_dt = None
 
-            # Data exata escolhida no calendário manda no filtro; sem
-            # ela, vale o período selecionado.
-            if self.data_filtro:
+            # Intervalo de datas escolhido no calendário manda no
+            # filtro; sem ele, vale o período selecionado.
+            if inicio_dt or fim_dt:
 
-                if data != self.data_filtro:
+                if data_dt is None:
+                    continue
+
+                if inicio_dt and data_dt.date() < inicio_dt.date():
+                    continue
+
+                if fim_dt and data_dt.date() > fim_dt.date():
                     continue
 
             else:
@@ -862,6 +948,11 @@ class Relatorios(ctk.CTkFrame):
 
                 if periodo == "Este mês" and data_dt and (
                     data_dt.month != agora.month or data_dt.year != agora.year
+                ):
+                    continue
+
+                if periodo == "Mês anterior" and data_dt and (
+                    data_dt.month != mes_anterior or data_dt.year != ano_do_mes_anterior
                 ):
                     continue
 
