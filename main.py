@@ -66,6 +66,7 @@ class LosManager(ctk.CTk):
         self.after(cardapio_online.INTERVALO_MS, self.consultar_cardapio_online)
 
         if not cardapio_online.configurado():
+            self.rodadas_cardapio = 0   # assim que o token for colado, o placar sai na próxima rodada
             return
 
         # Placar da fidelidade pro cardápio (logo ao abrir e depois a cada ~10 min, só se mudou).

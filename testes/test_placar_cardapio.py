@@ -55,5 +55,19 @@ class TestePlacarCardapio(unittest.TestCase):
         cardapio_online._placar["ultimo"] = None
 
 
+
+class TesteEnderecoCardapio(unittest.TestCase):
+
+    def test_endereco_colado_de_varios_jeitos(self):
+        """Endereço sem https://, com /admin, barra ou espaços vira https://host"""
+        for colado in ["pedido.lospastelles.com.br", " https://pedido.lospastelles.com.br/ ",
+                       "pedido.lospastelles.com.br/admin", "HTTPS://pedido.lospastelles.com.br/api/integracao"]:
+            self.assertEqual(cardapio_online.normalizar_url(colado), "https://pedido.lospastelles.com.br")
+
+    def test_vazio_usa_o_padrao(self):
+        """Campo vazio usa o endereço padrão do cardápio"""
+        self.assertEqual(cardapio_online.normalizar_url(""), cardapio_online.URL_PADRAO)
+
+
 if __name__ == "__main__":
     unittest.main()

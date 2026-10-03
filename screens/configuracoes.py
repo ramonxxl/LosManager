@@ -7,6 +7,7 @@ import webbrowser
 
 from utils import config
 from utils import cardapio_online
+from repositorios import fidelidade as repositorio_fidelidade
 from utils import impressora
 from utils import tema
 from utils import atualizacao
@@ -622,20 +623,31 @@ class Configuracoes(ctk.CTkFrame):
     # ======================================================
 
     def testar_cardapio_online(self):
-        """Salva e tenta buscar os pedidos do site, dizendo o resultado."""
+        """Salva, busca os pedidos do site e já manda o placar da
+        fidelidade, dizendo o resultado. A janela de resposta sai presa
+        a esta tela (parent=self) para não abrir escondida atrás do
+        programa — antes ela podia "não aparecer"."""
 
         config.definir("cardapio_url", self.cardapio_url.get().strip() or cardapio_online.URL_PADRAO)
         config.definir("cardapio_token", self.cardapio_token.get().strip())
 
         try:
             pedidos = cardapio_online.buscar_pedidos()
+            placar = repositorio_fidelidade.placar_para_cardapio()
+            cardapio_online.enviar_placar(placar, config.obter_meta_fidelidade())
         except cardapio_online.ErroCardapio as erro:
-            messagebox.showwarning("Cardápio online", str(erro))
+            messagebox.showwarning("Cardápio online", str(erro), parent=self)
+            return
+        except Exception as erro:   # endereço digitado errado etc.: nunca falhar calado
+            messagebox.showwarning("Cardápio online", f"Não deu para conectar: {erro}", parent=self)
             return
 
         messagebox.showinfo(
             "Cardápio online",
-            f"Conexão funcionando! {len(pedidos)} pedido(s) recente(s) no cardápio online."
+            f"Conexão funcionando!\n\n"
+            f"• {len(pedidos)} pedido(s) recente(s) no cardápio online\n"
+            f"• Fidelidade: pontos de {len(placar)} cliente(s) enviados ao cardápio",
+            parent=self
         )
 
     # ======================================================

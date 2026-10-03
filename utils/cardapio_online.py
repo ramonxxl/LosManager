@@ -24,7 +24,7 @@ import urllib.error
 from utils import config
 
 
-URL_PADRAO = "https://cardapio-los-pastelles.vercel.app"
+URL_PADRAO = "https://pedido.lospastelles.com.br"
 INTERVALO_MS = 20000          # de quanto em quanto tempo o main.py consulta
 PLACAR_A_CADA = 30            # placar da fidelidade: a cada 30 consultas (~10 min), só se mudou
 STATUS_EM_ABERTO = {"novo", "preparo", "pronto", "entrega"}
@@ -44,8 +44,21 @@ def credenciais():
     outra thread ao mesmo tempo derruba o programa (access violation —
     aconteceu no teste desta integração)."""
 
-    url = (config.obter("cardapio_url", URL_PADRAO).strip() or URL_PADRAO).rstrip("/")
-    return url, config.obter("cardapio_token", "").strip()
+    return normalizar_url(config.obter("cardapio_url", URL_PADRAO)), config.obter("cardapio_token", "").strip()
+
+
+def normalizar_url(texto):
+    """Aceita o endereço do jeito que a pessoa colar: sem https://
+    ("pedido.lospastelles.com.br"), com /admin ou / no fim, com espaços.
+    Sem isso o urllib dava ValueError ("unknown url type"), que não é
+    ErroCardapio: o teste não mostrava nada e a consulta parava calada."""
+
+    t = (texto or "").strip() or URL_PADRAO
+    if "://" not in t:
+        t = "https://" + t
+    esquema, resto = t.split("://", 1)
+    host = resto.split("/", 1)[0].strip()
+    return (esquema.lower() if esquema.lower() in ("http", "https") else "https") + "://" + host if host else URL_PADRAO
 
 
 def _chamar(caminho, dados=None, cred=None, timeout=15):
@@ -75,6 +88,9 @@ def _chamar(caminho, dados=None, cred=None, timeout=15):
 
     except (urllib.error.URLError, TimeoutError, OSError):
         raise ErroCardapio("Sem conexão com o cardápio online. Confira a internet.")
+
+    except ValueError:
+        raise ErroCardapio("Endereço do cardápio inválido. Use pedido.lospastelles.com.br (Configurações).")
 
 
 def buscar_pedidos(cred=None):
@@ -110,7 +126,7 @@ def enviar_placar_em_segundo_plano(placar, meta):
         try:
             enviar_placar(placar, meta, cred)
             _placar["ultimo"] = assinatura
-        except ErroCardapio:
+        except Exception:
             pass           # tenta de novo na próxima rodada
 
     threading.Thread(target=tarefa, daemon=True).start()
@@ -176,6 +192,8 @@ def buscar_em_segundo_plano(widget, ao_receber):
             resultado["pedidos"], resultado["erro"] = buscar_pedidos(cred), None
         except ErroCardapio as e:
             resultado["pedidos"], resultado["erro"] = None, str(e)
+        except Exception as e:   # qualquer outra falha também volta como erro: a consulta nunca para calada
+            resultado["pedidos"], resultado["erro"] = None, f"Falha ao consultar o cardápio online: {e}"
 
     def conferir():
         try:
