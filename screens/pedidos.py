@@ -557,13 +557,18 @@ class Pedidos(ctk.CTkFrame):
 
     # ======================================================
 
+    def obter_desconto(self):
+        """Desconto de cupom do cardápio online (o lançamento manual não tem desconto)."""
+        return float((self.pedido_online or {}).get("desconto") or 0)
+
     def atualizar_total(self):
 
         entrega = self.obter_valor_entrega()
-        total_final = self.total + entrega
+        desconto = self.obter_desconto()
+        total_final = self.total + entrega - desconto
 
         self.lbl_total.configure(
-            text=f"TOTAL: R$ {total_final:.2f}"
+            text=f"TOTAL: R$ {total_final:.2f}" + (f"  (cupom -R$ {desconto:.2f})" if desconto else "")
         )
 
     # ======================================================
@@ -1202,7 +1207,8 @@ class Pedidos(ctk.CTkFrame):
         pagamento = self.pagamento.get()
 
         entrega = self.obter_valor_entrega()
-        total_final = self.total + entrega
+        desconto = self.obter_desconto()
+        total_final = self.total + entrega - desconto
         motoboy_id = self.obter_motoboy_id()
 
         # Pedido do cardápio online: a observação (troco, referência,
@@ -1231,7 +1237,7 @@ class Pedidos(ctk.CTkFrame):
                 """,
                 (
                     numero, cliente_id, data_str, hora_str, self.total,
-                    0.0, entrega, total_final, pagamento, "Finalizado", observacao_pedido, motoboy_id,
+                    desconto, entrega, total_final, pagamento, "Finalizado", observacao_pedido, motoboy_id,
                     pedido_online_id
                 )
             )
@@ -1330,7 +1336,7 @@ class Pedidos(ctk.CTkFrame):
             "data": data_str,
             "hora": hora_str,
             "subtotal": self.total,
-            "desconto": 0.0,
+            "desconto": desconto,
             "acrescimo": entrega,
             "total": total_final,
             "pagamento": pagamento,

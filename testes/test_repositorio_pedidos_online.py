@@ -179,6 +179,14 @@ class TesteRascunho(BaseComBanco):
         estado, _ = po.montar_rascunho(p, self.banco)
         self.assertIn("a combinar", estado["pedido_online"]["observacao"])
 
+    def test_cupom_do_site_vira_desconto(self):
+        """Cupom do cardápio online: desconto no rascunho e código na observação do cupom impresso"""
+        estado, _ = po.montar_rascunho(pedido_exemplo(cupom="BEMVINDO10", desconto=638, total=6642), self.banco)
+        self.assertAlmostEqual(estado["pedido_online"]["desconto"], 6.38)
+        self.assertIn("Cupom BEMVINDO10", estado["pedido_online"]["observacao"])
+        # itens + entrega - desconto = total que o cliente pagou
+        self.assertAlmostEqual(estado["total"] + 9.00 - 6.38, 66.42)
+
     def test_ja_lancado(self):
         """Pedido online já gravado (e não cancelado) é reconhecido; cancelado libera de novo"""
         self.assertIsNone(po.ja_lancado(7, self.banco))

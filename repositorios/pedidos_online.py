@@ -367,6 +367,10 @@ def observacao_do_pedido(pedido_online):
 
     partes = [f"Cardápio online #{pedido_online.get('id')}"]
 
+    if pedido_online.get("cupom"):
+        frete = (pedido_online.get("entrega") or {}).get("freteGratis")
+        partes.append(f"Cupom {pedido_online['cupom']}" + (" (entrega grátis)" if frete else ""))
+
     pagamento = pedido_online.get("pagamento") or {}
 
     if pagamento.get("forma") == "dinheiro":
@@ -416,6 +420,8 @@ def montar_rascunho(pedido_online, banco=None):
             "id": pedido_online.get("id"),
             "observacao": observacao_do_pedido(pedido_online),
             "total": reais(pedido_online.get("total")),
+            # desconto do cupom do site: entra no campo desconto do pedido (o caixa já desconta das vendas)
+            "desconto": reais(pedido_online.get("desconto")),
         },
     }
 
