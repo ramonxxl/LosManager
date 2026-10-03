@@ -439,6 +439,32 @@ def obter_status_cliente(cliente_id, banco=None):
     }
 
 
+def placar_para_cardapio(banco=None):
+    """Placar enviado ao cardápio online (o cliente vê os pontos ao
+    digitar o WhatsApp lá): só telefone e números — nada de nome.
+    Um item por cliente participante que tem telefone cadastrado;
+    `pontos` é o total de dias com pedido (mesma conta da tela de
+    Fidelidade) e `premios` as recompensas disponíveis."""
+
+    banco = banco or conexao.banco
+
+    linhas = banco.buscar(
+        """
+        SELECT c.telefone, f.total_pedidos, f.recompensas_disponiveis
+        FROM fidelidade f
+        JOIN clientes c ON c.id = f.cliente_id
+        WHERE COALESCE(TRIM(c.telefone), '') != ''
+        ORDER BY f.cliente_id
+        """
+    )
+
+    return [
+        {"tel": "".join(ch for ch in telefone if ch.isdigit()), "pontos": total, "premios": premios}
+        for telefone, total, premios in linhas
+        if sum(ch.isdigit() for ch in telefone) >= 8
+    ]
+
+
 def listar_participantes(termo="", banco=None):
     """Uma linha por cliente participante (já com pelo menos 1 pedido
     de fidelidade) para a tabela da tela de Fidelidade: (cliente_id,

@@ -26,6 +26,7 @@ from utils import config
 
 URL_PADRAO = "https://cardapio-los-pastelles.vercel.app"
 INTERVALO_MS = 20000          # de quanto em quanto tempo o main.py consulta
+PLACAR_A_CADA = 30            # placar da fidelidade: a cada 30 consultas (~10 min), só se mudou
 STATUS_EM_ABERTO = {"novo", "preparo", "pronto", "entrega"}
 
 
@@ -84,6 +85,36 @@ def buscar_pedidos(cred=None):
 def marcar_lancado(pedido_online_id, numero, cred=None):
     """Avisa o site que o pedido entrou no caixa (vira 'Em preparo' lá)."""
     return _chamar("/api/integracao", {"id": pedido_online_id, "numero": str(numero)}, cred=cred)
+
+
+def enviar_placar(placar, meta, cred=None):
+    """Manda o placar completo da fidelidade (substitui o anterior no site)."""
+    return _chamar("/api/integracao", {"fidelidade": placar, "meta": meta}, cred=cred, timeout=30)
+
+
+_placar = {"ultimo": None}
+
+
+def enviar_placar_em_segundo_plano(placar, meta):
+    """Envia numa thread só se mudou desde o último envio que deu certo.
+    Montar o placar (SQLite) e ler as credenciais fica com quem chama,
+    na thread da interface; a thread aqui só faz HTTP e não toca no Tk."""
+
+    assinatura = json.dumps([placar, meta], sort_keys=True)
+    if assinatura == _placar["ultimo"]:
+        return False
+
+    cred = credenciais()   # aqui, na thread da interface
+
+    def tarefa():
+        try:
+            enviar_placar(placar, meta, cred)
+            _placar["ultimo"] = assinatura
+        except ErroCardapio:
+            pass           # tenta de novo na próxima rodada
+
+    threading.Thread(target=tarefa, daemon=True).start()
+    return True
 
 
 def pendentes(pedidos, ja_lancados=()):

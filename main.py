@@ -19,6 +19,7 @@ from utils import atualizacao
 from utils import autoatualizador
 from utils import caixa_estado
 from utils import cardapio_online
+from repositorios import fidelidade as repositorio_fidelidade
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -55,6 +56,7 @@ class LosManager(ctk.CTk):
         # Pedidos do cardápio online: consulta o site de tempos em tempos
         # (ver utils/cardapio_online.py). Sem token configurado não faz nada.
         self.pedidos_online_avisados = set()
+        self.rodadas_cardapio = 0
         self.after(4000, self.consultar_cardapio_online)
 
     # ==================================================
@@ -63,8 +65,21 @@ class LosManager(ctk.CTk):
 
         self.after(cardapio_online.INTERVALO_MS, self.consultar_cardapio_online)
 
-        # Só com integração ligada e caixa aberto (caixa fechado não vende).
-        if not cardapio_online.configurado() or not caixa_estado.esta_aberto():
+        if not cardapio_online.configurado():
+            return
+
+        # Placar da fidelidade pro cardápio (logo ao abrir e depois a cada ~10 min, só se mudou).
+        # Montado aqui, na thread da interface (SQLite); o envio vai numa thread.
+        if self.rodadas_cardapio % cardapio_online.PLACAR_A_CADA == 0:
+            try:
+                cardapio_online.enviar_placar_em_segundo_plano(
+                    repositorio_fidelidade.placar_para_cardapio(), config.obter_meta_fidelidade())
+            except Exception:
+                pass
+        self.rodadas_cardapio += 1
+
+        # Pedidos: só com o caixa aberto (caixa fechado não vende).
+        if not caixa_estado.esta_aberto():
             return
 
         cardapio_online.buscar_em_segundo_plano(self, self._cardapio_online_recebido)
