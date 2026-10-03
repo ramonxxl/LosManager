@@ -6,6 +6,7 @@ import sys
 import webbrowser
 
 from utils import config
+from utils import cardapio_online
 from utils import impressora
 from utils import tema
 from utils import atualizacao
@@ -311,6 +312,51 @@ class Configuracoes(ctk.CTkFrame):
         ).grid(row=2, column=0, columnspan=2, sticky="w", padx=15, pady=(0, 8))
 
         # =========================================================
+        # CARDÁPIO ONLINE (pedidos do site caem em Pedidos)
+        # =========================================================
+
+        bloco_cardapio = ctk.CTkFrame(self.scroll)
+        bloco_cardapio.pack(fill="x", padx=10, pady=6)
+
+        ctk.CTkLabel(
+            bloco_cardapio,
+            text="Cardápio Online",
+            font=("Arial", 14, "bold")
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=15, pady=(10, 6))
+
+        ctk.CTkLabel(bloco_cardapio, text="Endereço do cardápio").grid(
+            row=1, column=0, sticky="w", padx=15, pady=(4, 4)
+        )
+
+        self.cardapio_url = ctk.CTkEntry(bloco_cardapio, width=350, height=26)
+        self.cardapio_url.grid(row=1, column=1, padx=15, pady=(4, 4), sticky="w")
+
+        ctk.CTkLabel(bloco_cardapio, text="Token de integração").grid(
+            row=2, column=0, sticky="w", padx=15, pady=(4, 4)
+        )
+
+        self.cardapio_token = ctk.CTkEntry(bloco_cardapio, width=350, height=26, show="•")
+        self.cardapio_token.grid(row=2, column=1, padx=15, pady=(4, 4), sticky="w")
+
+        ctk.CTkButton(
+            bloco_cardapio,
+            text="🔌 Testar conexão",
+            width=140,
+            height=26,
+            command=self.testar_cardapio_online
+        ).grid(row=2, column=2, padx=(0, 15), pady=(4, 4), sticky="w")
+
+        ctk.CTkLabel(
+            bloco_cardapio,
+            text="Com o token preenchido, os pedidos feitos no cardápio online aparecem na tela\n"
+                 "de Pedidos (botão \"Ver pedidos online\"), com aviso sonoro, enquanto o caixa\n"
+                 "estiver aberto. Deixe o token vazio para desligar.",
+            font=("Arial", 11),
+            text_color="gray",
+            justify="left"
+        ).grid(row=3, column=0, columnspan=3, sticky="w", padx=15, pady=(0, 8))
+
+        # =========================================================
         # BOTÕES DE AÇÃO
         # =========================================================
 
@@ -413,6 +459,12 @@ class Configuracoes(ctk.CTkFrame):
 
         self.repo_atualizacao.delete(0, "end")
         self.repo_atualizacao.insert(0, config.obter("repo_atualizacao", atualizacao.REPOSITORIO_PADRAO))
+
+        self.cardapio_url.delete(0, "end")
+        self.cardapio_url.insert(0, config.obter("cardapio_url", cardapio_online.URL_PADRAO))
+
+        self.cardapio_token.delete(0, "end")
+        self.cardapio_token.insert(0, config.obter("cardapio_token", ""))
 
         impressora_salva = config.obter_impressora_nome()
 
@@ -554,6 +606,8 @@ class Configuracoes(ctk.CTkFrame):
         config.definir("loja_telefone", self.loja_telefone.get().strip())
         config.definir("senha_reset", self.senha_reset.get().strip())
         config.definir("repo_atualizacao", self.repo_atualizacao.get().strip() or atualizacao.REPOSITORIO_PADRAO)
+        config.definir("cardapio_url", self.cardapio_url.get().strip() or cardapio_online.URL_PADRAO)
+        config.definir("cardapio_token", self.cardapio_token.get().strip())
         config.definir("impressora_nome", self.combo_impressoras.get().strip())
         config.definir("impressora_largura", str(largura))
         config.definir("bloquear_venda_sem_estoque_ingrediente", self.bloquear_estoque_ingrediente.get())
@@ -564,6 +618,25 @@ class Configuracoes(ctk.CTkFrame):
         )
 
         messagebox.showinfo("Configurações", "Configurações salvas com sucesso!")
+
+    # ======================================================
+
+    def testar_cardapio_online(self):
+        """Salva e tenta buscar os pedidos do site, dizendo o resultado."""
+
+        config.definir("cardapio_url", self.cardapio_url.get().strip() or cardapio_online.URL_PADRAO)
+        config.definir("cardapio_token", self.cardapio_token.get().strip())
+
+        try:
+            pedidos = cardapio_online.buscar_pedidos()
+        except cardapio_online.ErroCardapio as erro:
+            messagebox.showwarning("Cardápio online", str(erro))
+            return
+
+        messagebox.showinfo(
+            "Cardápio online",
+            f"Conexão funcionando! {len(pedidos)} pedido(s) recente(s) no cardápio online."
+        )
 
     # ======================================================
 

@@ -10,8 +10,10 @@ from utils import responsivo
 from utils import caixa_estado
 from utils import pedido_rascunho
 from utils import tema
+from utils import cardapio_online
 from repositorios import motoboys as repositorio_motoboys
 from repositorios import fidelidade as repositorio_fidelidade
+from repositorios import pedidos_online as repositorio_pedidos_online
 
 SEM_MOTOBOY = "— Selecione —"
 RETIRADA = "Retirada (sem motoboy)"
@@ -35,6 +37,11 @@ class Pedidos(ctk.CTkFrame):
         # {"cliente_id": ..., "indice": <índice em self.itens>}
         self.recompensa_pendente = None
 
+        # Pedido vindo do cardápio online que está no carrinho agora
+        # ({"id", "observacao", "total"}), ou None — ver
+        # repositorios/pedidos_online.py e screens/pedidos_online.py.
+        self.pedido_online = None
+
         self.criar_interface()
 
         self.carregar_clientes()
@@ -44,9 +51,16 @@ class Pedidos(ctk.CTkFrame):
 
         self.atualizar_banner_fidelidade()
 
+        # A faixa "Pedidos online" se atualiza sozinha a cada consulta
+        # que o main.py faz ao site.
+        cardapio_online.registrar_ouvinte(self.atualizar_faixa_online)
+        self.atualizar_faixa_online()
+
     # ======================================================
 
     def destroy(self):
+
+        cardapio_online.remover_ouvinte(self.atualizar_faixa_online)
 
         # Guarda o carrinho em memória antes da tela ser destruída, pra
         # não perder o pedido ao navegar pra outra tela — ver
@@ -71,7 +85,8 @@ class Pedidos(ctk.CTkFrame):
             "valor_entrega": self.valor_entrega.get(),
             "motoboy": self.motoboy_combo.get(),
             "imprimir_cupom": bool(self.imprimir_cupom.get()),
-            "recompensa_pendente": self.recompensa_pendente
+            "recompensa_pendente": self.recompensa_pendente,
+            "pedido_online": self.pedido_online
         })
 
     # ======================================================
@@ -124,6 +139,7 @@ class Pedidos(ctk.CTkFrame):
             self.imprimir_cupom.deselect()
 
         self.recompensa_pendente = estado.get("recompensa_pendente")
+        self.pedido_online = estado.get("pedido_online")
 
         self.atualizar_total()
         self.atualizar_banner_fidelidade()
@@ -144,6 +160,30 @@ class Pedidos(ctk.CTkFrame):
             font=("Arial", 28, "bold")
         )
         titulo.pack(pady=(5, 15))
+
+        # ---------------- Cardápio online ----------------
+        # Só aparece com a integração configurada (Configurações).
+        self.faixa_online = ctk.CTkFrame(self.scroll, fg_color=tema.COR_LARANJA_CLARO)
+
+        self.lbl_faixa_online = ctk.CTkLabel(
+            self.faixa_online,
+            text="",
+            font=("Arial", 14, "bold"),
+            wraplength=700,
+            justify="left"
+        )
+        self.lbl_faixa_online.pack(side="left", padx=12, pady=8)
+
+        ctk.CTkButton(
+            self.faixa_online,
+            text="🌐 Ver pedidos online",
+            width=170,
+            fg_color=tema.COR_LARANJA,
+            command=self.abrir_pedidos_online
+        ).pack(side="right", padx=12, pady=8)
+
+        if cardapio_online.configurado():
+            self.faixa_online.pack(fill="x", pady=(0, 10))
 
         topo = ctk.CTkFrame(self.scroll)
         topo.pack(fill="x")
@@ -1046,6 +1086,8 @@ class Pedidos(ctk.CTkFrame):
         self.itens = []
         self.total = 0.0
         self.recompensa_pendente = None
+        self.pedido_online = None
+        self.atualizar_faixa_online()
 
         for linha in self.tabela.get_children():
             self.tabela.delete(linha)
@@ -1070,6 +1112,66 @@ class Pedidos(ctk.CTkFrame):
         self.quantidade.delete(0, "end")
         self.quantidade.insert(0, "1")
         self.observacao_item.delete(0, "end")
+
+    # ======================================================
+
+    # ======================================================
+    # CARDÁPIO ONLINE
+    # ======================================================
+
+    def atualizar_faixa_online(self):
+
+        if not self.winfo_exists() or not cardapio_online.configurado():
+            return
+
+        if self.pedido_online:
+            texto = (f"🌐 Pedido do cardápio online #{self.pedido_online['id']} no carrinho — "
+                     f"confira, escolha o motoboy e finalize.\n{self.pedido_online.get('observacao', '')}")
+        else:
+            resultado = cardapio_online.ultimo_resultado()
+            ja = {linha[0] for linha in banco.buscar(
+                "SELECT pedido_online_id FROM pedidos WHERE pedido_online_id IS NOT NULL AND status != 'Cancelado'"
+            )}
+            pendentes = cardapio_online.pendentes(resultado["pedidos"], ja)
+
+            if resultado["erro"]:
+                texto = f"🌐 Cardápio online: {resultado['erro']}"
+            elif pendentes:
+                texto = (f"🌐 {len(pendentes)} pedido{'s' if len(pendentes) != 1 else ''} "
+                         "do cardápio online aguardando lançamento")
+            else:
+                texto = "🌐 Cardápio online: nenhum pedido aguardando"
+
+        self.lbl_faixa_online.configure(text=texto)
+
+    def abrir_pedidos_online(self):
+
+        from screens.pedidos_online import JanelaPedidosOnline
+
+        JanelaPedidosOnline(self, self.carregar_pedido_online)
+
+    def carregar_pedido_online(self, estado, avisos):
+        """Põe no carrinho o rascunho montado a partir de um pedido do
+        cardápio online (ver repositorios/pedidos_online.py) — usa o
+        mesmo caminho de quando o rascunho volta de outra tela."""
+
+        if self.itens and not messagebox.askyesno(
+            "Pedido em andamento",
+            "Já tem itens no carrinho. Descartar esse pedido e carregar o pedido online?"
+        ):
+            return False
+
+        self.limpar_pedido()
+        self.carregar_clientes()
+
+        pedido_rascunho.salvar(estado)
+        self.restaurar_rascunho()
+        self.atualizar_faixa_online()
+
+        if avisos:
+            messagebox.showwarning("Pedido online — confira", "\n\n".join(avisos))
+
+        return True
 
     # ======================================================
 
@@ -1103,6 +1205,12 @@ class Pedidos(ctk.CTkFrame):
         total_final = self.total + entrega
         motoboy_id = self.obter_motoboy_id()
 
+        # Pedido do cardápio online: a observação (troco, referência,
+        # "Cardápio online #N") sai no cupom, e o id fica gravado pra
+        # não lançar o mesmo pedido duas vezes.
+        observacao_pedido = (self.pedido_online or {}).get("observacao", "")
+        pedido_online_id = (self.pedido_online or {}).get("id")
+
         # Pedido + itens + baixa de estoque + fidelidade viram uma
         # transação só: se algo falhar no meio, desfaz tudo (rollback)
         # em vez de deixar um pedido gravado pela metade.
@@ -1117,12 +1225,14 @@ class Pedidos(ctk.CTkFrame):
                 """
                 INSERT INTO pedidos
                     (numero, cliente_id, data, hora, subtotal,
-                     desconto, acrescimo, total, pagamento, status, observacao, motoboy_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     desconto, acrescimo, total, pagamento, status, observacao, motoboy_id,
+                     pedido_online_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     numero, cliente_id, data_str, hora_str, self.total,
-                    0.0, entrega, total_final, pagamento, "Finalizado", "", motoboy_id
+                    0.0, entrega, total_final, pagamento, "Finalizado", observacao_pedido, motoboy_id,
+                    pedido_online_id
                 )
             )
 
@@ -1224,7 +1334,8 @@ class Pedidos(ctk.CTkFrame):
             "acrescimo": entrega,
             "total": total_final,
             "pagamento": pagamento,
-            "observacao": "",
+            "observacao": observacao_pedido,
+            "pedido_online_id": pedido_online_id,
             "fidelidade": resultado_fidelidade
         }
 
@@ -1287,6 +1398,30 @@ class Pedidos(ctk.CTkFrame):
 
             return
 
+        sem_produto = [item["nome"] for item in self.itens if item.get("produto_id") is None]
+
+        if sem_produto:
+
+            messagebox.showwarning(
+                "Pedido online",
+                "Estes itens do cardápio online não têm produto no LosManager:\n\n"
+                + "\n".join(sem_produto)
+                + "\n\nRemova cada um e lance o produto certo antes de finalizar."
+            )
+
+            return
+
+        if self.pedido_online:
+
+            numero_anterior = repositorio_pedidos_online.ja_lancado(self.pedido_online["id"])
+
+            if numero_anterior and not messagebox.askyesno(
+                "Pedido online já lançado",
+                f"O pedido online #{self.pedido_online['id']} já foi lançado aqui como "
+                f"Nº {numero_anterior:04d}.\n\nLançar de novo mesmo assim?"
+            ):
+                return
+
         if self.motoboy_combo.get() == SEM_MOTOBOY:
 
             messagebox.showwarning(
@@ -1308,6 +1443,13 @@ class Pedidos(ctk.CTkFrame):
             )
 
             return
+
+        # Avisa o site em segundo plano (vira "Em preparo" no painel do
+        # cardápio); sem internet o pedido já está gravado aqui do mesmo jeito.
+        if pedido_dados.get("pedido_online_id"):
+            cardapio_online.marcar_lancado_em_segundo_plano(
+                pedido_dados["pedido_online_id"], pedido_dados["numero"]
+            )
 
         fidelidade_info = pedido_dados.get("fidelidade") or {}
 

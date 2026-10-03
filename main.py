@@ -18,6 +18,7 @@ from utils import tema
 from utils import atualizacao
 from utils import autoatualizador
 from utils import caixa_estado
+from utils import cardapio_online
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -50,6 +51,62 @@ class LosManager(ctk.CTk):
         # erro é engolido de propósito, sem segunda chance. Foi o que
         # aconteceu na loja.
         self.after(2000, self.verificar_atualizacao)
+
+        # Pedidos do cardápio online: consulta o site de tempos em tempos
+        # (ver utils/cardapio_online.py). Sem token configurado não faz nada.
+        self.pedidos_online_avisados = set()
+        self.after(4000, self.consultar_cardapio_online)
+
+    # ==================================================
+
+    def consultar_cardapio_online(self):
+
+        self.after(cardapio_online.INTERVALO_MS, self.consultar_cardapio_online)
+
+        # Só com integração ligada e caixa aberto (caixa fechado não vende).
+        if not cardapio_online.configurado() or not caixa_estado.esta_aberto():
+            return
+
+        cardapio_online.buscar_em_segundo_plano(self, self._cardapio_online_recebido)
+
+    def _cardapio_online_recebido(self, pedidos, erro):
+
+        cardapio_online.publicar(pedidos, erro)
+
+        if erro:
+            return
+
+        ja_lancados = {linha[0] for linha in banco.buscar(
+            "SELECT pedido_online_id FROM pedidos WHERE pedido_online_id IS NOT NULL AND status != 'Cancelado'"
+        )}
+        pendentes = cardapio_online.pendentes(pedidos, ja_lancados)
+
+        # Botão do menu mostra quantos esperam lançamento.
+        texto = "🛒 Pedidos" + (f"  ({len(pendentes)} 🌐)" if pendentes else "")
+        self.botoes["pedidos"].configure(text=texto)
+
+        novos = [p for p in pendentes if p["id"] not in self.pedidos_online_avisados]
+
+        if novos:
+            self.pedidos_online_avisados.update(p["id"] for p in novos)
+            self.avisar_pedido_online(len(novos))
+
+    def avisar_pedido_online(self, quantidade):
+        """Som + janela piscando na barra de tarefas — sem caixa de
+        mensagem, pra não travar quem está no meio de um pedido."""
+
+        try:
+            import winsound
+            for _ in range(3):
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+        except Exception:
+            self.bell()
+
+        try:
+            self.attributes("-topmost", True)
+            self.after(300, lambda: self.attributes("-topmost", False))
+        except Exception:
+            pass
 
     # ==================================================
 

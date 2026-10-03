@@ -223,6 +223,10 @@ class Banco:
         # coluna em pedidos.
         self._garantir_coluna("pedidos", "motoboy_id", "INTEGER")
 
+        # Pedido vindo do cardápio online: id dele no site (evita lançar
+        # o mesmo pedido duas vezes — ver repositorios/pedidos_online.py).
+        self._garantir_coluna("pedidos", "pedido_online_id", "INTEGER")
+
         # =====================================================
         # CAIXA
         # =====================================================
