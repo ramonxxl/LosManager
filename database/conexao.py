@@ -375,6 +375,9 @@ class Banco:
     # (chave da semente, nome exato do cardápio online, categoria, preço)
     PRODUTOS_DO_CARDAPIO = [
         ("produto_combo_mini_degustacao", "Combo Mini Degustação", "Combos", 31.90),
+        ("produto_combo_do_dia", "Combo do Dia", "Combos", 36.90),
+        ("produto_combo_familia", "Combo Família", "Combos", 56.90),
+        ("produto_combo_hot_dog", "Combo Hot Dog Los Pastelles", "Combos", 46.90),
     ]
 
     def _garantir_produtos_do_cardapio(self):

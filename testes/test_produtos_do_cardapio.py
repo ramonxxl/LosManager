@@ -26,6 +26,9 @@ class TesteProdutosDoCardapio(unittest.TestCase):
         banco = Banco(caminho)
         linha = banco.buscar_um("SELECT nome, categoria, preco, ativo FROM produtos WHERE nome='Combo Mini Degustação'")
         self.assertEqual(linha, ("Combo Mini Degustação", "Combos", 31.9, 1))
+        combos = banco.buscar("SELECT nome, preco FROM produtos WHERE categoria='Combos' ORDER BY nome")
+        self.assertEqual(combos, [("Combo Família", 56.9), ("Combo Hot Dog Los Pastelles", 46.9),
+                                  ("Combo Mini Degustação", 31.9), ("Combo do Dia", 36.9)])
         pedido = {"id": 1, "status": "novo", "cliente": {"nome": "Ana", "whatsapp": "5512991112222"}, "entrega": {"tipo": "retirada"},
                   "pagamento": {"forma": "pix"}, "subtotal": 3190, "taxa": 0, "total": 3190, "obs": "",
                   "itens": [{"produto": 99, "nome": "Combo Mini Degustação", "qtd": 1, "unit": 3190, "total": 3190, "obs": "",
