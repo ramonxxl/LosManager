@@ -66,6 +66,12 @@ class TesteItens(BaseComBanco):
         self.assertAlmostEqual(sum(i["subtotal"] for i in itens), 63.80)
         self.assertEqual(avisos, [])
 
+    def test_linha_do_adicional_diz_de_qual_item_e(self):
+        """A linha do adicional diz 'adicional do <item>' (sai em tarja na cozinha; 'no X' lia como 'sem X')"""
+        itens, _ = po.montar_itens(pedido_exemplo(), self.banco)
+        catupiry = next(i for i in itens if i["nome"] == "Catupiry (adicional)")
+        self.assertEqual(catupiry["observacao"], "adicional do Los Pastelles")
+
     def test_observacao_do_item_vai_junto(self):
         """A observação do cliente fica no item principal"""
         itens, _ = po.montar_itens(pedido_exemplo(), self.banco)

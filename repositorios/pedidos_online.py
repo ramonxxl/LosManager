@@ -245,7 +245,7 @@ def montar_itens(pedido_online, banco=None):
         adicionar(produto, qtd, unitario_online - valor_em_linha, observacao)
 
         for adicional, n, preco in extras_em_linha:
-            adicionar(adicional, qtd * n, preco, f"no {produto[1]}")
+            adicionar(adicional, qtd * n, preco, f"adicional do {produto[1]}")  # sai em tarja na cozinha: "no X" lia como "sem X"
 
     return itens, avisos
 
