@@ -24,6 +24,18 @@ ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 
+def medidas_menu(altura_tela):
+    """Tamanhos do menu lateral. Na tela da loja (1366x768) o menu normal
+    pedia ~770px e o botão Configurações ficava cortado embaixo (sobram
+    ~670px tirando barra de tarefas e título da janela); abaixo de 900px
+    de altura usa logo menor e botões mais baixos."""
+
+    if altura_tela < 900:
+        return {"logo_largura": 120, "logo_pady": (12, 8), "botao_altura": 42, "botao_pady": 3}
+
+    return {"logo_largura": 170, "logo_pady": (25, 20), "botao_altura": 52, "botao_pady": 6}
+
+
 class LosManager(ctk.CTk):
 
     def __init__(self):
@@ -220,6 +232,8 @@ class LosManager(ctk.CTk):
 
         self.menu.pack_propagate(False)
 
+        self.medidas = medidas_menu(self.winfo_screenheight())
+
         self.mostrar_logo_menu()
 
         self.definicao_botoes = [
@@ -243,7 +257,7 @@ class LosManager(ctk.CTk):
             botao = ctk.CTkButton(
                 self.menu,
                 text=texto,
-                height=52,
+                height=self.medidas["botao_altura"],
                 corner_radius=16,
                 font=("Segoe UI", 15, "bold"),
                 fg_color="transparent",
@@ -255,7 +269,7 @@ class LosManager(ctk.CTk):
             botao.pack(
                 fill="x",
                 padx=15,
-                pady=6
+                pady=self.medidas["botao_pady"]
             )
 
             self.botoes[chave] = botao
@@ -328,7 +342,7 @@ class LosManager(ctk.CTk):
             largura, altura = imagem_pil.size
             proporcao = altura / largura
 
-            largura_exibida = 170
+            largura_exibida = self.medidas["logo_largura"]
             altura_exibida = int(largura_exibida * proporcao)
 
             logo_ctk = ctk.CTkImage(
@@ -341,7 +355,7 @@ class LosManager(ctk.CTk):
                 self.menu,
                 image=logo_ctk,
                 text=""
-            ).pack(pady=(25, 20))
+            ).pack(pady=self.medidas["logo_pady"])
 
         except Exception:
 
