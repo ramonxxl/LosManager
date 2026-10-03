@@ -364,7 +364,51 @@ class Banco:
 
         self._criar_tabelas_fidelidade()
 
+        # Produtos novos do cardápio online que precisam existir aqui
+        # pro pedido online entrar no carrinho sem ⚠.
+        self._garantir_produtos_do_cardapio()
+
         self.conexao.commit()
+
+    # =========================================================
+
+    # (chave da semente, nome exato do cardápio online, categoria, preço)
+    PRODUTOS_DO_CARDAPIO = [
+        ("produto_combo_mini_degustacao", "Combo Mini Degustação", "Combos", 31.90),
+    ]
+
+    def _garantir_produtos_do_cardapio(self):
+        """Cadastra UMA vez (por banco) os produtos que o cardápio online
+        vende e o caixa ainda não tinha, com o mesmo nome — assim a
+        atualização automática já deixa a loja pronta. Fica marcado em
+        `configuracoes` (semente_<chave>): se a loja apagar ou renomear o
+        produto depois, ele não volta sozinho. Se já existir um produto
+        com esse nome (cadastrado à mão), só marca e não duplica."""
+
+        # Banco vazio (instalação nova, testes): não inventa produto — só
+        # completa o cardápio de quem já tem produtos cadastrados.
+        if not self.cursor.execute("SELECT 1 FROM produtos LIMIT 1").fetchone():
+            return
+
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS configuracoes(chave TEXT PRIMARY KEY, valor TEXT)")
+
+        for chave, nome, categoria, preco in self.PRODUTOS_DO_CARDAPIO:
+
+            marca = "semente_" + chave
+            if self.cursor.execute("SELECT 1 FROM configuracoes WHERE chave=?", (marca,)).fetchone():
+                continue
+
+            existe = self.cursor.execute(
+                "SELECT 1 FROM produtos WHERE LOWER(TRIM(nome)) = LOWER(?)", (nome,)
+            ).fetchone()
+
+            if not existe:
+                self.cursor.execute(
+                    "INSERT INTO produtos (nome, categoria, preco, estoque, ativo) VALUES (?, ?, ?, 0, 1)",
+                    (nome, categoria, preco)
+                )
+
+            self.cursor.execute("INSERT INTO configuracoes(chave, valor) VALUES (?, '1')", (marca,))
 
     # =========================================================
 
