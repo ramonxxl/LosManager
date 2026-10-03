@@ -5,6 +5,7 @@ from datetime import datetime
 from database.conexao import banco
 from utils import impressora
 from utils import config
+from utils import tamanho
 from utils import busca
 from utils import responsivo
 from utils import caixa_estado
@@ -340,6 +341,16 @@ class Pedidos(ctk.CTkFrame):
             text_color="gray"
         )
         self.lbl_produto_selecionado.pack(anchor="w", pady=(5, 0))
+
+        # Tamanho do pastel (só aparece para pastel que tem mini — ver utils/tamanho.py)
+        self.seletor_tamanho = ctk.CTkSegmentedButton(
+            coluna_produto,
+            values=["Grande", "Mini"],
+            width=180,
+            selected_color=tema.COR_LARANJA,
+            selected_hover_color=tema.COR_LARANJA_ESCURO
+        )
+        self.seletor_tamanho.set("Grande")
 
         self.produto_selecionado = None
 
@@ -795,6 +806,13 @@ class Pedidos(ctk.CTkFrame):
         self.produtos_cache = banco.buscar(
             "SELECT id, nome, preco, estoque FROM produtos WHERE ativo=1 ORDER BY nome"
         )
+        # Preço do mini de cada pastel (None = não tem mini). Fica num dict
+        # à parte para não mudar as tuplas de produtos_cache (desempacotadas
+        # com 4 campos em outros lugares desta tela).
+        self.mini_por_produto = {
+            produto_id: tamanho.preco_mini(categoria, preco)
+            for produto_id, categoria, preco in banco.buscar("SELECT id, categoria, preco FROM produtos WHERE ativo=1")
+        }
 
     # ======================================================
 
@@ -868,18 +886,28 @@ class Pedidos(ctk.CTkFrame):
         if produto is None:
             return
 
+        mini = getattr(self, "mini_por_produto", {}).get(produto[0])
+
         self.produto_selecionado = {
             "id": produto[0],
             "nome": produto[1],
             "preco": produto[2],
-            "estoque": produto[3]
+            "estoque": produto[3],
+            "preco_mini": mini
         }
 
+        precos = f"Grande R$ {produto[2]:.2f} · Mini R$ {mini:.2f}" if mini else f"R$ {produto[2]:.2f}"
         self.lbl_produto_selecionado.configure(
-            text=f"✅ {produto[1]}  —  R$ {produto[2]:.2f}  "
+            text=f"✅ {produto[1]}  —  {precos}  "
                  f"(estoque: {produto[3]})",
             text_color="#2a7"
         )
+
+        self.seletor_tamanho.set("Grande")
+        if mini:
+            self.seletor_tamanho.pack(anchor="w", pady=(4, 0))
+        else:
+            self.seletor_tamanho.pack_forget()
 
         self.busca_produto.delete(0, "end")
         self.resultados_frame.pack_forget()
@@ -1011,18 +1039,25 @@ class Pedidos(ctk.CTkFrame):
         if not self.verificar_estoque_ingredientes(itens_simulados, produto["nome"]):
             return
 
-        subtotal = qtd * produto["preco"]
+        observacao = self.observacao_item.get().strip()
+
+        # Mini: preço do mini e "MINI (11 CM)" na observação (sai na tarja
+        # da cozinha, igual ao pedido do cardápio online). Grande é o normal.
+        preco = produto["preco"]
+        if produto.get("preco_mini") and self.seletor_tamanho.get() == "Mini":
+            preco = produto["preco_mini"]
+            observacao = tamanho.OBSERVACAO_MINI + (f" | {observacao}" if observacao else "")
+
+        subtotal = round(qtd * preco, 2)
 
         self.total += subtotal
-
-        observacao = self.observacao_item.get().strip()
 
         # Guarda o item na lista real (fonte da verdade)
         self.itens.append({
             "produto_id": produto["id"],
             "nome": produto["nome"],
             "qtd": qtd,
-            "valor_unitario": produto["preco"],
+            "valor_unitario": preco,
             "subtotal": subtotal,
             "observacao": observacao
         })
@@ -1034,7 +1069,7 @@ class Pedidos(ctk.CTkFrame):
                 produto["nome"],
                 observacao,
                 qtd,
-                f"R$ {produto['preco']:.2f}",
+                f"R$ {preco:.2f}",
                 f"R$ {subtotal:.2f}"
             )
         )
@@ -1045,6 +1080,8 @@ class Pedidos(ctk.CTkFrame):
             text="Nenhum produto selecionado",
             text_color="gray"
         )
+        self.seletor_tamanho.set("Grande")
+        self.seletor_tamanho.pack_forget()
         self.quantidade.delete(0, "end")
         self.quantidade.insert(0, "1")
         self.observacao_item.delete(0, "end")
