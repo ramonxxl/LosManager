@@ -5,6 +5,7 @@ import urllib.request
 import customtkinter as ctk
 from tkinter import ttk, messagebox
 from database.conexao import banco
+from repositorios import clientes as repositorio_clientes
 from utils import tema
 from utils import busca
 from utils import responsivo
@@ -101,7 +102,7 @@ class Clientes(ctk.CTkFrame):
 
         self.busca = ctk.CTkEntry(
             busca_frame,
-            width=350,
+            width=260,
             placeholder_text="Digite para buscar..."
         )
         self.busca.pack(side="left")
@@ -118,12 +119,21 @@ class Clientes(ctk.CTkFrame):
 
         ctk.CTkButton(
             busca_frame,
-            text="📍 Endereços do Cliente Selecionado",
-            width=260,
+            text="📍 Endereços do cliente",
+            width=190,
             fg_color=tema.COR_LARANJA,
             hover_color=tema.COR_LARANJA_ESCURO,
             command=self.abrir_enderecos
         ).pack(side="left", padx=10)
+
+        ctk.CTkButton(
+            busca_frame,
+            text="🗑 Excluir cliente",
+            width=140,
+            fg_color=tema.COR_VERMELHO,
+            hover_color="#B23702",
+            command=self.excluir_selecionado
+        ).pack(side="left")
 
         # Tabela
         linhas = responsivo.linhas_para_tabela(self, self.scroll, pady_tabela=20)
@@ -267,6 +277,51 @@ class Clientes(ctk.CTkFrame):
         nome = valores[1]
 
         JanelaEnderecos(self, cliente_id, nome, ao_fechar=self.carregar)
+
+    # ======================================================
+
+    def excluir_selecionado(self):
+        """Pede confirmação dizendo o que acontece (pedidos ficam no caixa
+        como Cliente Balcão; endereços e pontos somem) e exclui."""
+
+        selecionado = self.tabela.selection()
+
+        if not selecionado:
+            messagebox.showwarning("Clientes", "Selecione na lista o cliente que quer excluir.", parent=self)
+            return
+
+        cliente_id = int(self.tabela.item(selecionado[0], "values")[0])
+        resumo = repositorio_clientes.resumo_exclusao(cliente_id)
+
+        if not resumo:
+            self.carregar()
+            return
+
+        detalhes = []
+        if resumo["pedidos"]:
+            detalhes.append(f"• {resumo['pedidos']} pedido(s) continuam no caixa e nos relatórios, "
+                            "mas passam a aparecer como Cliente Balcão.")
+        if resumo["enderecos"]:
+            detalhes.append(f"• {resumo['enderecos']} endereço(s) serão apagados.")
+        if resumo["pontos"]:
+            detalhes.append(f"• {resumo['pontos']} ponto(s) de fidelidade serão perdidos.")
+
+        texto = f"Excluir o cliente \"{resumo['nome']}\"?\n\n" + ("\n".join(detalhes) + "\n\n" if detalhes else "") + "Isso não pode ser desfeito."
+
+        if not messagebox.askyesno("Excluir cliente", texto, icon="warning", parent=self):
+            return
+
+        try:
+            repositorio_clientes.excluir(cliente_id)
+        except Exception as erro:
+            messagebox.showerror("Clientes", f"Não foi possível excluir: {erro}", parent=self)
+            return
+
+        if self.cliente_id_editando == cliente_id:
+            self.cancelar_edicao()
+
+        self.carregar()
+        messagebox.showinfo("Clientes", f"Cliente \"{resumo['nome']}\" excluído.", parent=self)
 
     # ======================================================
 
