@@ -72,6 +72,16 @@ class TesteItens(BaseComBanco):
         catupiry = next(i for i in itens if i["nome"] == "Catupiry (adicional)")
         self.assertEqual(catupiry["observacao"], "adicional do Los Pastelles")
 
+    def test_tamanho_mini_vira_observacao_e_grande_nao(self):
+        """Tamanho Mini vai na observação (tarja na cozinha); Grande é o normal e não vira nota nem linha"""
+        def pastel(tamanho, preco):
+            return {"produto": 1, "nome": "Carne com Queijo", "qtd": 1, "unit": 790 + preco, "total": 790 + preco, "obs": "",
+                    "escolhas": [{"grupo": "Tamanho", "nome": tamanho, "n": 1, "preco": preco}]}
+        itens, avisos = po.montar_itens(pedido_exemplo(itens=[pastel("Mini (11 cm)", 0), pastel("Grande (22 cm)", 900)]), self.banco)
+        self.assertEqual(avisos, [])
+        self.assertEqual([(i["nome"], i["valor_unitario"], i["observacao"]) for i in itens],
+                         [("Carne com Queijo", 7.9, "MINI (11 CM)"), ("Carne com Queijo", 16.9, "")])
+
     def test_observacao_do_item_vai_junto(self):
         """A observação do cliente fica no item principal"""
         itens, _ = po.montar_itens(pedido_exemplo(), self.banco)

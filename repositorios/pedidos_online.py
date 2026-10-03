@@ -68,6 +68,8 @@ APELIDOS = {
 }
 
 GRUPOS_QUE_ESCOLHEM_O_PRODUTO = {"sabor"}
+# Tamanho do pastel no cardápio (Grande 22 cm é o normal; só o Mini vai para a observação, em tarja na cozinha)
+GRUPO_TAMANHO = "tamanho"
 
 
 class PedidoOnlineInvalido(Exception):
@@ -208,6 +210,12 @@ def montar_itens(pedido_online, banco=None):
             rotulo = f"{n}x {e.get('nome')}" if n > 1 else str(e.get("nome"))
 
             if grupo in GRUPOS_QUE_ESCOLHEM_O_PRODUTO:
+                continue
+
+            if grupo == GRUPO_TAMANHO:
+                # o preço do tamanho fica no próprio item (valor do cliente); Grande é o padrão e não vira nota
+                if not normalizar(e.get("nome")).startswith("grande"):
+                    notas.append(str(e.get("nome")).upper())
                 continue
 
             adicional = encontrar_adicional(e.get("nome"), indice) if preco > 0 else None
