@@ -87,3 +87,17 @@ def aplicar_estilo_tabela():
         "Treeview.Heading",
         background=[("active", COR_LARANJA_ESCURO)]
     )
+
+
+# Fica aqui (e não no main.py) para o teste poder importar sem carregar as telas,
+# que guardam o banco no momento da importação.
+def medidas_menu(altura_tela):
+    """Tamanhos do menu lateral. Na tela da loja (1366x768) o menu normal
+    pedia ~770px e o botão Configurações ficava cortado embaixo (sobram
+    ~670px tirando barra de tarefas e título da janela); abaixo de 900px
+    de altura usa logo menor e botões mais baixos."""
+
+    if altura_tela < 900:
+        return {"logo_largura": 120, "logo_pady": (12, 8), "botao_altura": 42, "botao_pady": 3}
+
+    return {"logo_largura": 170, "logo_pady": (25, 20), "botao_altura": 52, "botao_pady": 6}

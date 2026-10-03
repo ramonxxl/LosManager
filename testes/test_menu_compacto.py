@@ -1,5 +1,5 @@
 """
-Testes de main.medidas_menu(): na tela da loja (1366x768) o menu
+Testes de utils/tema.medidas_menu(): na tela da loja (1366x768) o menu
 lateral precisa caber inteiro — antes o botão Configurações ficava
 cortado embaixo. A função é pura (não abre janela).
 
@@ -20,13 +20,13 @@ class TesteMenuCompacto(unittest.TestCase):
 
     def test_tela_da_loja_usa_menu_compacto_que_cabe(self):
         """Em 1366x768 o menu compacto cabe nos ~670px que sobram"""
-        from main import medidas_menu
+        from utils.tema import medidas_menu
         medidas = medidas_menu(768)
         self.assertLessEqual(self._altura_pedida(medidas), 670)
 
     def test_tela_grande_mantem_menu_normal(self):
         """Em telas de 900px ou mais o menu continua com o tamanho original"""
-        from main import medidas_menu
+        from utils.tema import medidas_menu
         self.assertEqual(medidas_menu(1080)["botao_altura"], 52)
         self.assertEqual(medidas_menu(1080)["logo_largura"], 170)
 

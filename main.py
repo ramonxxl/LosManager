@@ -24,18 +24,6 @@ ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 
-def medidas_menu(altura_tela):
-    """Tamanhos do menu lateral. Na tela da loja (1366x768) o menu normal
-    pedia ~770px e o botão Configurações ficava cortado embaixo (sobram
-    ~670px tirando barra de tarefas e título da janela); abaixo de 900px
-    de altura usa logo menor e botões mais baixos."""
-
-    if altura_tela < 900:
-        return {"logo_largura": 120, "logo_pady": (12, 8), "botao_altura": 42, "botao_pady": 3}
-
-    return {"logo_largura": 170, "logo_pady": (25, 20), "botao_altura": 52, "botao_pady": 6}
-
-
 class LosManager(ctk.CTk):
 
     def __init__(self):
@@ -232,7 +220,7 @@ class LosManager(ctk.CTk):
 
         self.menu.pack_propagate(False)
 
-        self.medidas = medidas_menu(self.winfo_screenheight())
+        self.medidas = tema.medidas_menu(self.winfo_screenheight())
 
         self.mostrar_logo_menu()
 
