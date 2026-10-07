@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 from datetime import datetime
 
 from database.conexao import banco
+from utils import impressora
 from utils import config
 from utils import busca
 from utils import calendario
@@ -10,6 +11,7 @@ from utils import tema
 from utils import responsivo
 from repositorios import motoboys as repositorio_motoboys
 from repositorios import fidelidade as repositorio_fidelidade
+from repositorios import reimpressao as repositorio_reimpressao
 
 SEM_MOTOBOY = "Retirada (sem motoboy)"
 
@@ -239,6 +241,13 @@ class Relatorios(ctk.CTkFrame):
 
         ctk.CTkButton(
             botoes_pedido,
+            text="🖨 Reimprimir Cupom",
+            width=170,
+            command=self.reimprimir_cupom
+        ).pack(side="left", padx=(0, 10))
+
+        ctk.CTkButton(
+            botoes_pedido,
             text="🚫 Cancelar Pedido Selecionado",
             fg_color=tema.COR_VERMELHO,
             hover_color="#B93601",
@@ -274,7 +283,8 @@ class Relatorios(ctk.CTkFrame):
                  "o cancelamento tenha sido por engano. Editar Motoboy só "
                  "corrige quem ficou com a entrega, sem mexer no resto do "
                  "pedido. Todos pedem a senha de administrador e o pedido "
-                 "continua no histórico.",
+                 "continua no histórico. Reimprimir só imprime o cupom de "
+                 "novo, marcado como 2ª via.",
             font=("Arial", 12),
             text_color="gray",
             wraplength=900,
@@ -456,6 +466,49 @@ class Relatorios(ctk.CTkFrame):
         pedido_id = self.tabela.item(selecionado[0], "values")[0]
 
         JanelaDetalhePedido(self, pedido_id)
+
+    # ======================================================
+    # REIMPRIMIR CUPOM (2ª via; não mexe em estoque nem caixa)
+    # ======================================================
+
+    def reimprimir_cupom(self):
+
+        selecionado = self.tabela.selection()
+
+        if not selecionado:
+            messagebox.showwarning(
+                "Relatórios",
+                "Selecione um pedido na lista para reimprimir o cupom."
+            )
+            return
+
+        pedido_id = self.tabela.item(selecionado[0], "values")[0]
+
+        try:
+            pedido, itens = repositorio_reimpressao.dados_do_pedido(pedido_id)
+
+        except repositorio_reimpressao.ReimpressaoInvalida as erro:
+            messagebox.showwarning("Reimprimir Cupom", str(erro))
+            return
+
+        try:
+            impressora.imprimir_cupom(
+                config.obter_dados_loja(), pedido, itens, segunda_via=True
+            )
+
+        except Exception as erro:
+            messagebox.showerror(
+                "Reimprimir Cupom",
+                f"Não foi possível imprimir o cupom:\n\n{erro}\n\n"
+                "Verifique se a impressora está ligada e selecionada "
+                "em Configurações."
+            )
+            return
+
+        messagebox.showinfo(
+            "Reimprimir Cupom",
+            f"2ª via do pedido Nº {pedido['numero']:04d} enviada para impressão!"
+        )
 
     # ======================================================
     # CANCELAR PEDIDO (devolve estoque de produto + ingredientes)

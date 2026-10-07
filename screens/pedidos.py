@@ -15,6 +15,7 @@ from utils import cardapio_online
 from repositorios import motoboys as repositorio_motoboys
 from repositorios import fidelidade as repositorio_fidelidade
 from repositorios import pedidos_online as repositorio_pedidos_online
+from repositorios import reimpressao as repositorio_reimpressao
 
 SEM_MOTOBOY = "— Selecione —"
 RETIRADA = "Retirada (sem motoboy)"
@@ -1385,35 +1386,10 @@ class Pedidos(ctk.CTkFrame):
     # ======================================================
 
     def obter_endereco_cliente(self, cliente_id):
-        """Monta o endereço principal do cliente numa linha só, pro
-        cupom — motoboy não pode ter que abrir o cadastro pra saber
-        pra onde entregar. Cliente Balcão (sem cliente_id) ou cliente
-        sem nenhum endereço cadastrado devolve string vazia."""
+        """Endereço principal do cliente numa linha só, pro cupom (a
+        mesma montagem da 2ª via em Relatórios)."""
 
-        if cliente_id is None:
-            return ""
-
-        endereco = banco.buscar_um(
-            """
-            SELECT endereco, numero, bairro, cidade
-            FROM enderecos_cliente
-            WHERE cliente_id=? AND principal=1
-            """,
-            (cliente_id,)
-        )
-
-        if not endereco:
-            return ""
-
-        rua, numero, bairro, cidade = endereco
-
-        linha = ", ".join(p for p in (rua, numero) if p)
-        complemento = " - ".join(p for p in (bairro, cidade) if p)
-
-        if complemento:
-            linha = f"{linha} - {complemento}" if linha else complemento
-
-        return linha
+        return repositorio_reimpressao.endereco_principal(cliente_id)
 
     # ======================================================
 

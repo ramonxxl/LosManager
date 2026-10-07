@@ -177,7 +177,7 @@ def _logo_para_escpos(largura):
 # MONTAGEM DO CUPOM
 # =================================================================
 
-def montar_cupom(dados_loja, pedido, itens, largura=32):
+def montar_cupom(dados_loja, pedido, itens, largura=32, segunda_via=False):
     """
     dados_loja = {"nome": "...", "endereco": "...", "telefone": "..."}
 
@@ -201,6 +201,9 @@ def montar_cupom(dados_loja, pedido, itens, largura=32):
 
     A "observacao" de cada item é opcional e sai logo abaixo do produto
     em tarja preta (vídeo invertido), pra cozinha não passar batido.
+
+    segunda_via=True (reimpressão pelos Relatórios) põe a tarja
+    "2ª VIA" logo abaixo do número, pra ninguém preparar de novo.
     """
 
     buffer = b""
@@ -226,6 +229,10 @@ def montar_cupom(dados_loja, pedido, itens, largura=32):
     buffer += NEGRITO_ON
     buffer += _texto(f"PEDIDO Nº {pedido['numero']:04d}\n")
     buffer += NEGRITO_OFF
+
+    if segunda_via:
+        buffer += _bloco_destacado("2ª VIA - REIMPRESSÃO", largura)
+
     buffer += _texto(f"{pedido['data']}  {pedido['hora']}\n")
     buffer += _texto(f"Cliente: {pedido['cliente']}\n")
 
@@ -299,7 +306,7 @@ def montar_cupom(dados_loja, pedido, itens, largura=32):
 # ENVIO PARA A IMPRESSORA
 # =================================================================
 
-def imprimir_cupom(dados_loja, pedido, itens, nome_impressora=None, largura=None):
+def imprimir_cupom(dados_loja, pedido, itens, nome_impressora=None, largura=None, segunda_via=False):
     """Monta o cupom e envia para a impressora térmica.
     Se nome_impressora/largura não forem informados, lê da tela
     de Configurações (salva no banco via utils/config.py)."""
@@ -316,7 +323,7 @@ def imprimir_cupom(dados_loja, pedido, itens, nome_impressora=None, largura=None
     if largura is None:
         largura = config.obter_largura_papel()
 
-    dados_bytes = montar_cupom(dados_loja, pedido, itens, largura=largura)
+    dados_bytes = montar_cupom(dados_loja, pedido, itens, largura=largura, segunda_via=segunda_via)
 
     handle = win32print.OpenPrinter(nome_impressora)
 
