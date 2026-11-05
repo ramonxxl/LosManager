@@ -8,11 +8,18 @@ carrinho", monta o rascunho (repositorios/pedidos_online.py) e
 entrega para a tela de Pedidos, que segue o fluxo normal de
 finalizar (motoboy, cupom, estoque, caixa e fidelidade).
 
+Situação do pedido: os mesmos botões do painel do cardápio
+(Aceitar, Saiu para entrega / Pronto para retirar, Entregue). O
+toque grava no cardápio — vale no painel, aqui e no "Meus pedidos"
+do cliente — e oferece a mensagem pronta no WhatsApp do cliente.
+Mudou no painel? A lista daqui acompanha a cada consulta (20 s).
+
 A consulta ao site roda numa thread separada (internet lenta não
 pode travar o caixa) — ver cardapio_online.buscar_em_segundo_plano.
 =================================================================
 """
 
+import webbrowser
 from datetime import datetime
 
 import customtkinter as ctk
@@ -47,6 +54,7 @@ class JanelaPedidosOnline(ctk.CTkToplevel):
 
         self.ao_lancar = ao_lancar
         self.pedidos = []
+        self._mudando = False   # esperando o cardápio confirmar uma mudança de situação
 
         self.title("Pedidos do cardápio online")
         self.transient(master.winfo_toplevel())
@@ -61,6 +69,17 @@ class JanelaPedidosOnline(ctk.CTkToplevel):
 
         self.mostrar(cardapio_online.ultimo_resultado()["pedidos"])
         self.atualizar()
+
+        # a consulta automática do main.py (a cada 20 s) também atualiza esta lista
+        cardapio_online.registrar_ouvinte(self._ao_publicar)
+
+    def _ao_publicar(self):
+        if self.winfo_exists() and not self._mudando:
+            self.mostrar(cardapio_online.ultimo_resultado()["pedidos"])
+
+    def destroy(self):
+        cardapio_online.remover_ouvinte(self._ao_publicar)
+        super().destroy()
 
     # ======================================================
 
@@ -103,7 +122,7 @@ class JanelaPedidosOnline(ctk.CTkToplevel):
         )
         for coluna, titulo, largura, ancora in (
             ("numero", "#", 50, "center"), ("hora", "Hora", 90, "center"), ("cliente", "Cliente", 170, "w"),
-            ("tipo", "Entrega", 80, "center"), ("total", "Total", 85, "e"), ("situacao", "Situação", 150, "w"),
+            ("tipo", "Entrega", 80, "center"), ("total", "Total", 85, "e"), ("situacao", "Situação", 200, "w"),
         ):
             self.tabela.heading(coluna, text=titulo)
             self.tabela.column(coluna, width=largura, anchor=ancora)
@@ -114,9 +133,16 @@ class JanelaPedidosOnline(ctk.CTkToplevel):
         self.tabela.bind("<Double-1>", lambda e: self.lancar())
         self.tabela.pack(side="left", fill="both", expand=True)
 
-        self.detalhe = ctk.CTkTextbox(corpo, width=330, font=("Consolas", 12), wrap="word")
-        self.detalhe.pack(side="left", fill="both", padx=(10, 0))
+        lado = ctk.CTkFrame(corpo, fg_color="transparent")
+        lado.pack(side="left", fill="both", padx=(10, 0))
+
+        self.detalhe = ctk.CTkTextbox(lado, width=330, font=("Consolas", 12), wrap="word")
+        self.detalhe.pack(fill="both", expand=True)
         self.detalhe.configure(state="disabled")
+
+        # botões de situação + WhatsApp do pedido selecionado (desenhar_acoes)
+        self.acoes = ctk.CTkFrame(lado, fg_color="transparent")
+        self.acoes.pack(fill="x", pady=(8, 0))
 
         rodape = ctk.CTkFrame(self, fg_color="transparent")
         rodape.pack(fill="x", padx=16, pady=(0, 14))
@@ -187,12 +213,16 @@ class JanelaPedidosOnline(ctk.CTkToplevel):
 
             numero_local = lancados.get(p["id"])
 
+            etapa = STATUS.get(p.get("status"), p.get("status"))
+
             if numero_local:
-                situacao, tag = f"✓ Lançado Nº {numero_local:04d}", "lancado"
+                situacao, tag = f"✓ Nº {numero_local:04d} · {etapa}", "lancado"
             elif p.get("importadoEm"):
-                situacao, tag = f"✓ Lançado (Nº {p.get('importadoNumero') or '?'})", "lancado"
+                situacao, tag = f"✓ Nº {p.get('importadoNumero') or '?'} · {etapa}", "lancado"
             elif p.get("status") in cardapio_online.STATUS_EM_ABERTO:
-                situacao, tag = "⏳ Aguardando", "pendente"
+                # ainda não lançado no caixa; se a situação já andou (mudada aqui ou no painel), mostra qual
+                situacao = "⏳ Aguardando" if p.get("status") == "novo" else f"⏳ Não lançado · {etapa}"
+                tag = "pendente"
             else:
                 situacao, tag = STATUS.get(p.get("status"), p.get("status")), "lancado"
 
@@ -212,6 +242,7 @@ class JanelaPedidosOnline(ctk.CTkToplevel):
 
         if not self.pedidos:
             self._escrever_detalhe("Nenhum pedido do cardápio online hoje.")
+            self.desenhar_acoes(None)
 
     # ======================================================
 
@@ -282,6 +313,75 @@ class JanelaPedidosOnline(ctk.CTkToplevel):
             linhas += ["", f"Obs.: {p['obs']}"]
 
         self._escrever_detalhe("\n".join(linhas))
+        self.desenhar_acoes(p)
+
+    # ======================================================
+    # SITUAÇÃO DO PEDIDO (igual ao painel do cardápio)
+    # ======================================================
+
+    def desenhar_acoes(self, p):
+
+        for filho in self.acoes.winfo_children():
+            filho.destroy()
+
+        if not p:
+            return
+
+        for status, rotulo in cardapio_online.proximos_status(p):
+            ctk.CTkButton(
+                self.acoes, text=rotulo, height=34, font=("Arial", 13, "bold"),
+                fg_color="#E8590C" if status in ("entrega", "pronto") else None,
+                hover_color="#C94A07" if status in ("entrega", "pronto") else None,
+                state="disabled" if self._mudando else "normal",
+                command=lambda s=status: self.mudar_status(p, s)
+            ).pack(fill="x", pady=(0, 6))
+
+        link = cardapio_online.link_whatsapp((p.get("cliente") or {}).get("whatsapp"), p.get("mensagem"))
+
+        if link:
+            ctk.CTkButton(
+                self.acoes, text="📲 Mandar mensagem ao cliente", height=32,
+                fg_color="#25A55F", hover_color="#1E8A4F",
+                command=lambda: webbrowser.open(link)
+            ).pack(fill="x")
+
+    def mudar_status(self, p, status):
+
+        self._mudando = True
+        self.desenhar_acoes(p)
+        self.lbl_status.configure(text="Avisando o cardápio online...", text_color="gray")
+
+        cardapio_online.mudar_status_em_segundo_plano(
+            self, p["id"], status, lambda pedido, erro: self._status_mudou(p["id"], pedido, erro)
+        )
+
+    def _status_mudou(self, pedido_id, pedido, erro):
+
+        self._mudando = False
+
+        if erro:
+            self.lbl_status.configure(text=f"⚠ {erro}", text_color="#c2371f")
+            self.mostrar_detalhe()
+            messagebox.showwarning("Pedidos online", f"A situação não mudou.\n\n{erro}", parent=self)
+            return
+
+        # troca o pedido na lista desta janela e no estado compartilhado (faixa da tela de Pedidos)
+        self.pedidos = [pedido if p["id"] == pedido_id else p for p in self.pedidos]
+        cardapio_online.publicar(self.pedidos)
+        self.lbl_status.configure(
+            text=f"#{pedido_id}: {STATUS.get(pedido.get('status'), pedido.get('status'))} — atualizado no cardápio às {datetime.now():%H:%M}",
+            text_color="#2a7"
+        )
+
+        # saiu para entrega / pronto: já oferece o aviso ao cliente, como o painel
+        if pedido.get("status") in ("entrega", "pronto"):
+            link = cardapio_online.link_whatsapp((pedido.get("cliente") or {}).get("whatsapp"), pedido.get("mensagem"))
+            if link and messagebox.askyesno(
+                "Avisar o cliente?",
+                f"Mensagem para {(pedido.get('cliente') or {}).get('nome', '')}:\n\n{pedido.get('mensagem')}\n\nAbrir no WhatsApp?",
+                parent=self
+            ):
+                webbrowser.open(link)
 
     # ======================================================
 

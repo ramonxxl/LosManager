@@ -18,6 +18,7 @@ atualizações: a internet da loja pode estar lenta ou fora.
 
 import json
 import threading
+import urllib.parse
 import urllib.request
 import urllib.error
 
@@ -101,6 +102,33 @@ def buscar_pedidos(cred=None):
 def marcar_lancado(pedido_online_id, numero, cred=None):
     """Avisa o site que o pedido entrou no caixa (vira 'Em preparo' lá)."""
     return _chamar("/api/integracao", {"id": pedido_online_id, "numero": str(numero)}, cred=cred)
+
+
+def mudar_status(pedido_online_id, status, cred=None):
+    """Muda a situação do pedido no cardápio (vale no painel, aqui e no
+    "Meus pedidos" do cliente). Devolve o pedido atualizado, com a
+    `mensagem` pronta para o WhatsApp do cliente."""
+    return _chamar("/api/integracao", {"id": pedido_online_id, "status": status}, cred=cred).get("pedido")
+
+
+# Próximo passo de cada situação — os mesmos botões do painel do cardápio.
+def proximos_status(pedido):
+    entrega = (pedido.get("entrega") or {}).get("tipo") == "entrega"
+    return {
+        "novo": [("preparo", "✅ Aceitar e preparar")],
+        "preparo": [("entrega", "🛵 Saiu para entrega")] if entrega else [("pronto", "🏪 Pronto para retirar")],
+        "pronto": [("concluido", "✔ Concluir")],
+        "entrega": [("concluido", "✔ Entregue")],
+    }.get(pedido.get("status"), [])
+
+
+def link_whatsapp(whatsapp, mensagem):
+    """Link que abre a conversa do cliente com a mensagem já escrita
+    (no WhatsApp Web ou no aplicativo do computador)."""
+    numero = "".join(c for c in str(whatsapp or "") if c.isdigit())
+    if not numero or not mensagem:
+        return None
+    return f"https://api.whatsapp.com/send?phone={numero}&text={urllib.parse.quote(mensagem)}"
 
 
 def enviar_placar(placar, meta, cred=None):
@@ -203,6 +231,37 @@ def buscar_em_segundo_plano(widget, ao_receber):
             return
         if "erro" in resultado:
             ao_receber(resultado["pedidos"], resultado["erro"])
+        else:
+            widget.after(150, conferir)
+
+    threading.Thread(target=tarefa, daemon=True).start()
+    widget.after(150, conferir)
+
+
+def mudar_status_em_segundo_plano(widget, pedido_online_id, status, ao_terminar):
+    """Mesmo esquema de buscar_em_segundo_plano: a thread só faz HTTP e
+    o próprio widget confere com after() se a resposta chegou, e então
+    chama ao_terminar(pedido, erro) na thread da interface."""
+
+    resultado = {}
+    cred = credenciais()   # aqui, na thread da interface
+
+    def tarefa():
+        try:
+            resultado["pedido"], resultado["erro"] = mudar_status(pedido_online_id, status, cred), None
+        except ErroCardapio as e:
+            resultado["pedido"], resultado["erro"] = None, str(e)
+        except Exception as e:
+            resultado["pedido"], resultado["erro"] = None, f"Falha ao mudar a situação no cardápio online: {e}"
+
+    def conferir():
+        try:
+            if not widget.winfo_exists():
+                return
+        except Exception:
+            return
+        if "erro" in resultado:
+            ao_terminar(resultado["pedido"], resultado["erro"])
         else:
             widget.after(150, conferir)
 
