@@ -410,6 +410,17 @@ class Pedidos(ctk.CTkFrame):
             command=self.remover_item
         ).pack(side="left")
 
+        # Venda a funcionário (preço de custo): muda o valor do item
+        # selecionado, com a senha de administrador.
+        ctk.CTkButton(
+            linha_acoes,
+            text="Alterar valor (funcionário)",
+            width=190,
+            fg_color="#7a5c00",
+            hover_color="#5c4500",
+            command=self.alterar_valor_item
+        ).pack(side="left", padx=(8, 0))
+
         # =========================
         # Rodapé é criado (e empacotado) antes da tabela do carrinho só
         # para medir sua altura real; a tabela é inserida visualmente
@@ -1087,6 +1098,105 @@ class Pedidos(ctk.CTkFrame):
         self.quantidade.insert(0, "1")
         self.observacao_item.delete(0, "end")
         self.busca_produto.focus()
+
+    # ======================================================
+
+    def confirmar_senha_admin(self, titulo_acao):
+        """Mesma senha de administrador de Configurações → Segurança."""
+
+        senha_cadastrada = config.obter("senha_reset").strip()
+
+        if not senha_cadastrada:
+            messagebox.showwarning(
+                "Segurança",
+                "Você ainda não cadastrou uma senha de administrador.\n\n"
+                "Vá em Configurações → Segurança e cadastre uma senha antes "
+                f"de {titulo_acao}."
+            )
+            return False
+
+        janela = ctk.CTkInputDialog(
+            text=f"Digite a senha de administrador para {titulo_acao}:",
+            title="Confirmar Senha"
+        )
+        senha_digitada = janela.get_input()
+
+        if senha_digitada is None:
+            return False
+
+        if senha_digitada != senha_cadastrada:
+            messagebox.showerror("Segurança", "Senha incorreta.")
+            return False
+
+        return True
+
+    # ======================================================
+
+    def alterar_valor_item(self):
+        """Venda a funcionário a preço de custo: troca o valor unitário do
+        item selecionado do carrinho (precisa da senha de administrador)."""
+
+        selecionado = self.tabela.selection()
+
+        if not selecionado:
+            messagebox.showwarning(
+                "Pedido",
+                "Selecione, no carrinho, o item que terá o valor alterado."
+            )
+            return
+
+        indice = self.tabela.index(selecionado[0])
+
+        if self.recompensa_pendente and self.recompensa_pendente["indice"] == indice:
+            messagebox.showwarning(
+                "Pedido",
+                "Este item está com a recompensa da fidelidade (grátis) — o valor dele não pode ser alterado."
+            )
+            return
+
+        item = self.itens[indice]
+
+        if not self.confirmar_senha_admin("alterar o valor do item"):
+            return
+
+        janela = ctk.CTkInputDialog(
+            text=(f"Novo valor UNITÁRIO de \"{item['nome']}\" (R$).\n"
+                  f"Valor atual: R$ {item['valor_unitario']:.2f}. Ex: 12,50"),
+            title="Alterar valor (funcionário)"
+        )
+        digitado = janela.get_input()
+
+        if digitado is None:
+            return
+
+        try:
+            novo_valor = round(float(digitado.strip().replace("R$", "").replace(" ", "").replace(",", ".")), 2)
+        except ValueError:
+            messagebox.showwarning("Pedido", "Valor inválido. Use números, ex: 12,50")
+            return
+
+        if novo_valor < 0:
+            messagebox.showwarning("Pedido", "O valor não pode ser negativo.")
+            return
+
+        self.total -= item["subtotal"]
+
+        item["valor_unitario"] = novo_valor
+        item["subtotal"] = round(item["qtd"] * novo_valor, 2)
+
+        marca = "(Preço funcionário)"
+        if marca not in item["observacao"]:
+            item["observacao"] = (item["observacao"] + " " if item["observacao"] else "") + marca
+
+        self.total += item["subtotal"]
+
+        self.tabela.item(
+            selecionado[0],
+            values=(item["nome"], item["observacao"], item["qtd"],
+                    f"R$ {item['valor_unitario']:.2f}", f"R$ {item['subtotal']:.2f}")
+        )
+
+        self.atualizar_total()
 
     # ======================================================
 
