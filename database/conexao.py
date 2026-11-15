@@ -378,6 +378,12 @@ class Banco:
         ("produto_combo_do_dia", "Combo do Dia", "Combos", 36.90),
         ("produto_combo_familia", "Combo Família", "Combos", 56.90),
         ("produto_combo_hot_dog", "Combo Hot Dog Los Pastelles", "Combos", 46.90),
+        ("produto_hamburguer_smoke_bacon", "Smoke Bacon", "Hambúrgueres", 29.90),
+        ("produto_hamburguer_monster_smoke_bacon", "Monster Smoke Bacon", "Hambúrgueres", 34.90),
+        ("produto_hamburguer_smoke_salada", "Smoke Salada", "Hambúrgueres", 27.90),
+        ("produto_hamburguer_creamy_chicken", "Creamy Chicken", "Hambúrgueres", 28.90),
+        ("produto_hamburguer_smoke_rings", "Smoke Rings", "Hambúrgueres", 27.90),
+        ("produto_hamburguer_smoke_catupiry", "Smoke Catupiry", "Hambúrgueres", 33.90),
     ]
 
     def _garantir_produtos_do_cardapio(self):

@@ -9,6 +9,7 @@ from repositorios import clientes as repositorio_clientes
 from utils import tema
 from utils import busca
 from utils import responsivo
+from utils import fila_interface
 
 
 class Clientes(ctk.CTkFrame):
@@ -798,15 +799,15 @@ class JanelaEnderecos(ctk.CTkToplevel):
                 dados = json.loads(resposta.read().decode("utf-8"))
 
             if dados.get("erro"):
-                self.after(0, lambda: self.lbl_status_cep.configure(
+                fila_interface.agendar(lambda: self.lbl_status_cep.configure(
                     text="❌ CEP não encontrado.", text_color="#c33"
                 ))
                 return
 
-            self.after(0, lambda: self._preencher_endereco(dados))
+            fila_interface.agendar(lambda: self._preencher_endereco(dados))
 
         except Exception:
-            self.after(0, lambda: self.lbl_status_cep.configure(
+            fila_interface.agendar(lambda: self.lbl_status_cep.configure(
                 text="⚠️ Não foi possível buscar o CEP (verifique a internet).",
                 text_color="#c80"
             ))

@@ -40,6 +40,27 @@ class TesteProdutosDoCardapio(unittest.TestCase):
                          [("Combo Mini Degustação", 31.9, "+ 2x Carne | + Pizza")])
         banco.conexao.close()
 
+    def test_hamburgueres_do_cardapio_existem_e_casam_com_o_pedido_online(self):
+        """Banco da loja ganha os 6 hambúrgueres do cardápio online e o pedido com pão e adicional entra sem ⚠"""
+        caminho = os.path.join(tempfile.mkdtemp(), "loja.db")
+        banco = Banco(caminho)
+        banco.executar("INSERT INTO produtos (nome, categoria, preco, estoque, ativo) VALUES ('Carne', 'Tradicionais', 15.9, 10, 1)")
+        banco.conexao.close()
+        banco = Banco(caminho)
+        lanches = banco.buscar("SELECT nome, preco, ativo FROM produtos WHERE categoria='Hambúrgueres' ORDER BY nome")
+        self.assertEqual(lanches, [("Creamy Chicken", 28.9, 1), ("Monster Smoke Bacon", 34.9, 1), ("Smoke Bacon", 29.9, 1),
+                                   ("Smoke Catupiry", 33.9, 1), ("Smoke Rings", 27.9, 1), ("Smoke Salada", 27.9, 1)])
+        pedido = {"id": 2, "status": "novo", "cliente": {"nome": "Ana", "whatsapp": "5512991112222"}, "entrega": {"tipo": "retirada"},
+                  "pagamento": {"forma": "pix"}, "subtotal": 3690, "taxa": 0, "total": 3690, "obs": "",
+                  "itens": [{"produto": 99, "nome": "Smoke Bacon", "qtd": 1, "unit": 3690, "total": 3690, "obs": "",
+                             "escolhas": [{"grupo": "Escolha o pão", "nome": "Pão francês", "n": 1, "preco": 200},
+                                          {"grupo": "Turbine seu lanche (adicionais)", "nome": "Bacon extra", "n": 1, "preco": 500}]}]}
+        itens, avisos = po.montar_itens(pedido, banco)
+        self.assertEqual(avisos, [])
+        self.assertEqual([(i["nome"], i["valor_unitario"]) for i in itens], [("Smoke Bacon", 36.9)])
+        self.assertEqual(itens[0]["observacao"], "+ Pão francês | + Bacon extra")
+        banco.conexao.close()
+
     def test_apagado_pela_loja_nao_volta(self):
         """Se a loja apagar o produto, ele não é recriado na próxima abertura"""
         pasta = tempfile.mkdtemp()

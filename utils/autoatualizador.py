@@ -37,6 +37,7 @@ import customtkinter as ctk
 from tkinter import messagebox
 
 from utils import config
+from utils import fila_interface
 from utils import tema
 
 
@@ -187,10 +188,10 @@ class JanelaAtualizacao(ctk.CTkToplevel):
         try:
             pasta_extraida = baixar_e_preparar(url_download, self._progresso)
         except Exception as erro:
-            self.after(0, lambda: self._erro(erro))
+            fila_interface.agendar(lambda: self._erro(erro))
             return
 
-        self.after(0, lambda: self._concluir(pasta_extraida))
+        fila_interface.agendar(lambda: self._concluir(pasta_extraida))
 
     # ======================================================
 
@@ -213,7 +214,7 @@ class JanelaAtualizacao(ctk.CTkToplevel):
 
             self.lbl_status.configure(text=texto)
 
-        self.after(0, atualizar)
+        fila_interface.agendar(atualizar)
 
     # ======================================================
 

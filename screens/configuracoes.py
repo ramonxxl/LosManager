@@ -7,6 +7,7 @@ import webbrowser
 
 from utils import config
 from utils import cardapio_online
+from utils import fila_interface
 from repositorios import fidelidade as repositorio_fidelidade
 from utils import impressora
 from utils import tema
@@ -755,8 +756,8 @@ class Configuracoes(ctk.CTkFrame):
         self.lbl_status.configure(text="🔎 Verificando atualização...", text_color="gray")
 
         atualizacao.verificar_manualmente(
-            lambda atual, nova, url, url_download: self.after(0, lambda: self._resultado_atualizacao(atual, nova, url, url_download)),
-            lambda erro: self.after(0, lambda: self._erro_atualizacao(erro))
+            lambda atual, nova, url, url_download: fila_interface.agendar(lambda: self._resultado_atualizacao(atual, nova, url, url_download)),
+            lambda erro: fila_interface.agendar(lambda: self._erro_atualizacao(erro))
         )
 
     # ======================================================

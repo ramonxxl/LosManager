@@ -19,6 +19,8 @@ from utils import atualizacao
 from utils import autoatualizador
 from utils import caixa_estado
 from utils import cardapio_online
+from utils import diagnostico
+from utils import fila_interface
 from repositorios import fidelidade as repositorio_fidelidade
 
 ctk.set_appearance_mode("light")
@@ -38,6 +40,12 @@ class LosManager(ctk.CTk):
         tema.aplicar_estilo_tabela()
 
         _ = banco
+
+        # Registro de travamentos (travamentos.log) e fila segura das
+        # threads de rede -> interface (ver utils/diagnostico.py e
+        # utils/fila_interface.py). Antes de tudo, pra pegar até a abertura.
+        diagnostico.iniciar(self)
+        fila_interface.iniciar(self)
 
         self.fazer_backup_inicial()
 
@@ -160,11 +168,11 @@ class LosManager(ctk.CTk):
 
         # Chamado de dentro da thread de rede: precisa voltar pra
         # thread principal do Tkinter antes de mexer na interface.
-        self.after(0, lambda: self._mostrar_aviso_atualizacao(versao_atual, versao_nova, url_release, url_download))
+        fila_interface.agendar(lambda: self._mostrar_aviso_atualizacao(versao_atual, versao_nova, url_release, url_download))
 
     def _notificar_repositorio_invalido(self, repositorio):
 
-        self.after(0, lambda: self._mostrar_aviso_repositorio(repositorio))
+        fila_interface.agendar(lambda: self._mostrar_aviso_repositorio(repositorio))
 
     def _mostrar_aviso_repositorio(self, repositorio):
         """Repositório errado nas Configurações: diferente de ficar sem

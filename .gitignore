@@ -7,3 +7,5 @@ assets/versao.txt
 
 __pycache__/
 *.pyc
+
+travamentos.log
